@@ -117,15 +117,23 @@ export const createMessageThread = async (threadData: Omit<MessageThread, 'id'>)
 // Send a message
 export const sendMessage = async (messageData: Omit<Message, 'id'>): Promise<Message> => {
   try {
+    // Clean up undefined values to avoid Firestore errors
+    const cleanedData: any = {};
+    Object.entries(messageData).forEach(([key, value]) => {
+      if (value !== undefined) {
+        cleanedData[key] = value;
+      }
+    });
+
     const messageToAdd = {
-      ...messageData,
+      ...cleanedData,
       timestamp: Timestamp.now()
     };
 
     const docRef = await addDoc(collection(db, MESSAGES_COLLECTION), messageToAdd);
 
     // Get thread data to update unread counts
-    const threadRef = doc(db, MESSAGE_THREADS_COLLECTION, messageData.threadId);
+    const threadRef = doc(db, MESSAGE_THREADS_COLLECTION, cleanedData.threadId);
     const threadDoc = await getDoc(threadRef);
 
     if (threadDoc.exists()) {
@@ -136,14 +144,14 @@ export const sendMessage = async (messageData: Omit<Message, 'id'>): Promise<Mes
       // Update unread counts for all participants except the sender
       const updatedUnreadCounts = { ...currentUnreadCounts };
       participantIds.forEach((participantId: string) => {
-        if (participantId !== messageData.senderId) {
+        if (participantId !== cleanedData.senderId) {
           updatedUnreadCounts[participantId] = (updatedUnreadCounts[participantId] || 0) + 1;
         }
       });
 
       // Create appropriate snippet based on message type
-      let snippet = messageData.content.substring(0, 100);
-      if (messageData.replyTo) {
+      let snippet = cleanedData.content.substring(0, 100);
+      if (cleanedData.replyTo) {
         snippet = `Replied: ${snippet}`;
       }
 
@@ -158,7 +166,7 @@ export const sendMessage = async (messageData: Omit<Message, 'id'>): Promise<Mes
 
     return {
       id: docRef.id,
-      ...messageData,
+      ...cleanedData,
       timestamp: new Date().toISOString()
     };
   } catch (error) {
