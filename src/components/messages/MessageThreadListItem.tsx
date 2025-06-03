@@ -201,7 +201,7 @@ export default function MessageThreadListItem({ thread, isSelected, onSelectThre
             </AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to delete this conversation with <strong>{threadName}</strong>?
-              This action cannot be undone and all messages will be permanently removed.
+              This will only delete the chat for you. The other person will still be able to see the conversation.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

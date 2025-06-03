@@ -190,9 +190,6 @@ export default function MessageView({
               {thread.participantIds.length} member{thread.participantIds.length === 1 ? '' : 's'}
             </p>
           )}
-           {thread.type === 'dm' && (
-            <p className="text-xs text-muted-foreground">Direct Message</p>
-          )}
         </div>
       </div>
 

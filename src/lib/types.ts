@@ -84,6 +84,8 @@ export interface MessageThread {
   avatarUrl?: string; // For DM or team avatar
   avatarFallback?: string;
   hasUnreadMessages?: boolean; // Helper for UI to show badges
+  deletedForUsers?: string[]; // Array of user IDs who have deleted this thread for themselves
+  deletedAtTimestamps?: { [userId: string]: string }; // Timestamp when each user deleted the thread
 }
 
 export interface MessageReaction {

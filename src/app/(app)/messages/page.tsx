@@ -14,10 +14,13 @@ import { cn } from '@/lib/utils';
 import {
   subscribeToUserMessageThreads,
   subscribeToThreadMessages,
+  subscribeToThreadMessagesForUser,
   createMessageThread,
   sendMessage,
-  deleteMessageThread,
+  deleteThreadForUser,
   findExistingDMThread,
+  findExistingDMThreadIncludingDeleted,
+  restoreThreadForUser,
   markThreadAsRead,
   addMessageReaction,
   deleteMessageForMe,
@@ -69,7 +72,7 @@ export default function MessagesPage() {
     }
 
     setLoadingMessages(true);
-    const unsubscribe = subscribeToThreadMessages(selectedThreadId, (threadMessages) => {
+    const unsubscribe = subscribeToThreadMessagesForUser(selectedThreadId, currentUser.id, (threadMessages) => {
       setMessages(threadMessages.map(msg => ({
         ...msg,
         isOwnMessage: msg.senderId === currentUser.id
@@ -176,7 +179,7 @@ export default function MessagesPage() {
     if (!currentUser) return;
 
     try {
-      // Check if DM thread already exists
+      // First check if DM thread already exists and is visible to current user
       const existingThread = await findExistingDMThread(currentUser.id, targetUser.id);
 
       if (existingThread) {
@@ -188,7 +191,26 @@ export default function MessagesPage() {
         return;
       }
 
-      // Create new DM thread
+      // Check if thread exists but was deleted by current user
+      // We need to reuse existing threads to prevent multiple threads for the same conversation
+      const deletedThread = await findExistingDMThreadIncludingDeleted(currentUser.id, targetUser.id);
+
+      if (deletedThread) {
+        // Thread exists but was deleted by current user
+        // Just restore thread visibility without sending any message
+        // The thread will become visible when user sends their first actual message
+        await restoreThreadForUser(deletedThread.id, currentUser.id);
+
+        setSelectedThreadId(deletedThread.id);
+
+        toast({
+          title: "Chat Ready",
+          description: `You can now chat with ${targetUser.name}.`
+        });
+        return;
+      }
+
+      // Create new DM thread only if no thread exists at all
       const newThreadData: Omit<MessageThread, 'id'> = {
         type: 'dm',
         participantIds: [currentUser.id, targetUser.id],
@@ -201,37 +223,17 @@ export default function MessagesPage() {
         unreadCounts: {
           [currentUser.id]: 0,
           [targetUser.id]: 0
-        }
+        },
+        deletedForUsers: [] // Initialize as empty array
       };
 
       const newThread = await createMessageThread(newThreadData);
 
-      // Add the new thread to the local state immediately (avoid duplicates)
-      setThreads(prevThreads => {
-        const exists = prevThreads.some(t => t.id === newThread.id);
-        if (exists) return prevThreads;
-        return [newThread, ...prevThreads];
-      });
-
       // Immediately select the new thread
       setSelectedThreadId(newThread.id);
 
-      // Send initial welcome message
-      const initialMessage: Omit<Message, 'id'> = {
-        threadId: newThread.id,
-        senderId: currentUser.id,
-        senderName: currentUser.name,
-        senderAvatarUrl: currentUser.profileImage || '',
-        senderAvatarFallback: getInitials(currentUser.name),
-        content: `Started a conversation with ${targetUser.name}`,
-        timestamp: new Date().toISOString(),
-        type: 'system', // Mark as system message
-      };
-
-      await sendMessage(initialMessage);
-
       toast({
-        title: "New Chat Started",
+        title: "Chat Ready",
         description: `You can now chat with ${targetUser.name}.`
       });
     } catch (error) {
@@ -248,7 +250,7 @@ export default function MessagesPage() {
     if (!currentUser) return;
 
     try {
-      await deleteMessageThread(threadId);
+      await deleteThreadForUser(threadId, currentUser.id);
 
       // Clear selection if deleted thread was selected
       if (selectedThreadId === threadId) {
@@ -257,7 +259,7 @@ export default function MessagesPage() {
 
       toast({
         title: "Chat Deleted",
-        description: "The conversation has been deleted successfully."
+        description: "The conversation has been deleted for you. The other person can still see it."
       });
     } catch (error) {
       console.error('Error deleting thread:', error);

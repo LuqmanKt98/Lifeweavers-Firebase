@@ -140,6 +140,7 @@ export const sendMessage = async (messageData: Omit<Message, 'id'>): Promise<Mes
       const threadData = threadDoc.data();
       const participantIds = threadData.participantIds || [];
       const currentUnreadCounts = threadData.unreadCounts || {};
+      const deletedForUsers = threadData.deletedForUsers || [];
 
       // Update unread counts for all participants except the sender
       const updatedUnreadCounts = { ...currentUnreadCounts };
@@ -155,11 +156,18 @@ export const sendMessage = async (messageData: Omit<Message, 'id'>): Promise<Mes
         snippet = `Replied: ${snippet}`;
       }
 
-      // Update thread's last message info and unread counts
+      // Make thread visible for all participants but preserve deletion timestamps
+      // This ensures message history filtering is maintained per user
+      const updatedDeletedForUsers: string[] = []; // Make thread visible to all
+
+      // Update thread's last message info, unread counts, and restore visibility
+      // Note: We keep deletedAtTimestamps intact to preserve message filtering per user
       await updateDoc(threadRef, {
         lastMessageTimestamp: messageToAdd.timestamp,
         lastMessageSnippet: snippet,
         unreadCounts: updatedUnreadCounts,
+        deletedForUsers: updatedDeletedForUsers, // Clear deleted status for visibility
+        // deletedAtTimestamps: Keep existing timestamps for message filtering
         updatedAt: Timestamp.now()
       });
     }
@@ -175,7 +183,40 @@ export const sendMessage = async (messageData: Omit<Message, 'id'>): Promise<Mes
   }
 };
 
-// Delete a message thread
+// Delete a message thread for a specific user (WhatsApp-like behavior)
+export const deleteThreadForUser = async (threadId: string, userId: string): Promise<void> => {
+  try {
+    const threadRef = doc(db, MESSAGE_THREADS_COLLECTION, threadId);
+    const threadDoc = await getDoc(threadRef);
+
+    if (!threadDoc.exists()) {
+      throw new Error('Thread not found');
+    }
+
+    const threadData = threadDoc.data();
+    const deletedForUsers = threadData.deletedForUsers || [];
+    const deletedAtTimestamps = threadData.deletedAtTimestamps || {};
+
+    // Add user to deletedForUsers array if not already present
+    if (!deletedForUsers.includes(userId)) {
+      deletedForUsers.push(userId);
+    }
+
+    // Store the deletion timestamp for this user
+    deletedAtTimestamps[userId] = new Date().toISOString();
+
+    await updateDoc(threadRef, {
+      deletedForUsers,
+      deletedAtTimestamps,
+      updatedAt: Timestamp.now()
+    });
+  } catch (error) {
+    console.error('Error deleting thread for user:', error);
+    throw new Error('Failed to delete thread for user');
+  }
+};
+
+// Delete a message thread completely (for admin use)
 export const deleteMessageThread = async (threadId: string): Promise<void> => {
   try {
     // Delete all messages in the thread first
@@ -209,7 +250,7 @@ export const markThreadAsRead = async (threadId: string, userId: string): Promis
   }
 };
 
-// Subscribe to user's message threads
+// Subscribe to user's message threads with user-specific data
 export const subscribeToUserMessageThreads = (
   userId: string,
   callback: (threads: MessageThread[]) => void
@@ -221,14 +262,93 @@ export const subscribeToUserMessageThreads = (
     orderBy('lastMessageTimestamp', 'desc')
   );
 
-  return onSnapshot(q, (snapshot) => {
-    const threads = snapshot.docs.map(doc => ({
+  return onSnapshot(q, async (snapshot) => {
+    const allThreads = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
       lastMessageTimestamp: convertTimestamp(doc.data().lastMessageTimestamp)
     })) as MessageThread[];
 
-    callback(threads);
+    // Filter out threads that are deleted for this user
+    const visibleThreads = allThreads.filter(thread => {
+      const deletedForUsers = thread.deletedForUsers || [];
+      return !deletedForUsers.includes(userId);
+    });
+
+    // For each visible thread, get the user-specific last message snippet
+    const threadsWithUserSpecificData = await Promise.all(
+      visibleThreads.map(async (thread) => {
+        const deletedAtTimestamps = thread.deletedAtTimestamps || {};
+        const userDeletedAt = deletedAtTimestamps[userId];
+
+        // Get the last message that this user can see
+        const messagesRef = collection(db, MESSAGES_COLLECTION);
+        const messagesQuery = query(
+          messagesRef,
+          where('threadId', '==', thread.id),
+          orderBy('timestamp', 'desc'),
+          limit(1)
+        );
+
+        try {
+          const messagesSnapshot = await getDocs(messagesQuery);
+          let lastVisibleMessage = null;
+
+          if (!messagesSnapshot.empty) {
+            const lastMessage = messagesSnapshot.docs[0].data();
+            const messageTimestamp = new Date(convertTimestamp(lastMessage.timestamp));
+
+            // Check if user can see this message (after their deletion timestamp)
+            if (!userDeletedAt || messageTimestamp > new Date(userDeletedAt)) {
+              lastVisibleMessage = lastMessage;
+            } else {
+              // User deleted thread before this message, find the last message they can see
+              const userMessagesQuery = query(
+                messagesRef,
+                where('threadId', '==', thread.id),
+                where('timestamp', '>', Timestamp.fromDate(new Date(userDeletedAt))),
+                orderBy('timestamp', 'desc'),
+                limit(1)
+              );
+
+              const userMessagesSnapshot = await getDocs(userMessagesQuery);
+              if (!userMessagesSnapshot.empty) {
+                lastVisibleMessage = userMessagesSnapshot.docs[0].data();
+              }
+            }
+          }
+
+          // Update thread with user-specific last message snippet
+          let userSpecificSnippet = thread.lastMessageSnippet;
+          if (lastVisibleMessage) {
+            userSpecificSnippet = lastVisibleMessage.content?.substring(0, 100) || 'New message';
+            if (lastVisibleMessage.replyTo) {
+              userSpecificSnippet = `Replied: ${userSpecificSnippet}`;
+            }
+          } else if (userDeletedAt) {
+            // User has deleted the thread and no new messages
+            userSpecificSnippet = 'Start typing to send a message...';
+          } else {
+            // New thread with no messages yet
+            userSpecificSnippet = 'Start typing to send a message...';
+          }
+
+          return {
+            ...thread,
+            lastMessageSnippet: userSpecificSnippet,
+            unreadCount: thread.unreadCounts?.[userId] || 0
+          };
+        } catch (error) {
+          console.error('Error getting user-specific thread data:', error);
+          return {
+            ...thread,
+            unreadCount: thread.unreadCounts?.[userId] || 0
+          };
+        }
+      })
+    );
+
+    callback(threadsWithUserSpecificData);
   }, (error) => {
     console.error('Error in message threads subscription:', error);
   });
@@ -259,6 +379,75 @@ export const subscribeToThreadMessages = (
   });
 };
 
+// Subscribe to messages in a thread with user-specific filtering (for deleted threads)
+export const subscribeToThreadMessagesForUser = (
+  threadId: string,
+  userId: string,
+  callback: (messages: Message[]) => void
+): (() => void) => {
+  let messagesUnsubscribe: (() => void) | null = null;
+
+  // Subscribe to thread changes to get deletion timestamps
+  const threadRef = doc(db, MESSAGE_THREADS_COLLECTION, threadId);
+
+  const threadUnsubscribe = onSnapshot(threadRef, (threadSnapshot) => {
+    if (!threadSnapshot.exists()) {
+      callback([]);
+      return;
+    }
+
+    const threadData = threadSnapshot.data();
+    const deletedAtTimestamps = threadData.deletedAtTimestamps || {};
+    const userDeletedAt = deletedAtTimestamps[userId];
+
+    // Clean up previous messages subscription
+    if (messagesUnsubscribe) {
+      messagesUnsubscribe();
+    }
+
+    // Subscribe to messages
+    const messagesRef = collection(db, MESSAGES_COLLECTION);
+    const q = query(
+      messagesRef,
+      where('threadId', '==', threadId),
+      orderBy('timestamp', 'asc')
+    );
+
+    messagesUnsubscribe = onSnapshot(q, (snapshot) => {
+      const allMessages = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        timestamp: convertTimestamp(doc.data().timestamp)
+      })) as Message[];
+
+      let filteredMessages = allMessages;
+
+      // If user had deleted the thread, only show messages after the deletion timestamp
+      if (userDeletedAt) {
+        const deletedTimestamp = new Date(userDeletedAt);
+        filteredMessages = allMessages.filter(message => {
+          const messageTimestamp = new Date(message.timestamp);
+          return messageTimestamp > deletedTimestamp;
+        });
+      }
+
+      callback(filteredMessages);
+    }, (error) => {
+      console.error('Error in thread messages subscription for user:', error);
+    });
+  }, (error) => {
+    console.error('Error in thread subscription for user:', error);
+  });
+
+  // Return cleanup function for both subscriptions
+  return () => {
+    threadUnsubscribe();
+    if (messagesUnsubscribe) {
+      messagesUnsubscribe();
+    }
+  };
+};
+
 // Get unread message count for a user
 export const getUnreadMessageCount = async (userId: string): Promise<number> => {
   try {
@@ -283,7 +472,7 @@ export const getUnreadMessageCount = async (userId: string): Promise<number> => 
   }
 };
 
-// Check if a DM thread already exists between two users
+// Check if a DM thread already exists between two users (considering user deletions)
 export const findExistingDMThread = async (userId1: string, userId2: string): Promise<MessageThread | null> => {
   try {
     const threadsRef = collection(db, MESSAGE_THREADS_COLLECTION);
@@ -298,6 +487,78 @@ export const findExistingDMThread = async (userId1: string, userId2: string): Pr
     const existingThread = snapshot.docs.find(doc => {
       const data = doc.data();
       const participants = data.participantIds || [];
+      const deletedForUsers = data.deletedForUsers || [];
+
+      return participants.includes(userId2) &&
+             participants.length === 2 &&
+             participants.includes(userId1) &&
+             !deletedForUsers.includes(userId1); // Thread should not be deleted for the requesting user
+    });
+
+    if (existingThread) {
+      const data = existingThread.data();
+      return {
+        id: existingThread.id,
+        ...data,
+        lastMessageTimestamp: convertTimestamp(data.lastMessageTimestamp)
+      } as MessageThread;
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Error finding existing DM thread:', error);
+    return null;
+  }
+};
+
+// Make thread visible for a user (remove from deletedForUsers but keep deletion timestamp)
+export const restoreThreadForUser = async (threadId: string, userId: string): Promise<void> => {
+  try {
+    const threadRef = doc(db, MESSAGE_THREADS_COLLECTION, threadId);
+    const threadDoc = await getDoc(threadRef);
+
+    if (!threadDoc.exists()) {
+      throw new Error('Thread not found');
+    }
+
+    const threadData = threadDoc.data();
+    const deletedForUsers = threadData.deletedForUsers || [];
+
+    // Remove user from deletedForUsers array if present (make thread visible)
+    const updatedDeletedForUsers = deletedForUsers.filter((id: string) => id !== userId);
+
+    // Keep deletion timestamp intact for message filtering
+    // This ensures user only sees messages after their deletion time
+    // Update lastMessageTimestamp to make thread appear at top of list
+    await updateDoc(threadRef, {
+      deletedForUsers: updatedDeletedForUsers,
+      lastMessageTimestamp: Timestamp.now(),
+      // Don't change lastMessageSnippet - let the user-specific subscription handle it
+      // deletedAtTimestamps: Keep existing timestamps for permanent message filtering
+      updatedAt: Timestamp.now()
+    });
+  } catch (error) {
+    console.error('Error restoring thread for user:', error);
+    throw new Error('Failed to restore thread for user');
+  }
+};
+
+// Find existing DM thread regardless of deletion status (for restoring when new message is sent)
+export const findExistingDMThreadIncludingDeleted = async (userId1: string, userId2: string): Promise<MessageThread | null> => {
+  try {
+    const threadsRef = collection(db, MESSAGE_THREADS_COLLECTION);
+    const q = query(
+      threadsRef,
+      where('type', '==', 'dm'),
+      where('participantIds', 'array-contains', userId1)
+    );
+    const snapshot = await getDocs(q);
+
+    // Find thread that contains both users and only those two users (regardless of deletion status)
+    const existingThread = snapshot.docs.find(doc => {
+      const data = doc.data();
+      const participants = data.participantIds || [];
+
       return participants.includes(userId2) &&
              participants.length === 2 &&
              participants.includes(userId1);
@@ -314,7 +575,7 @@ export const findExistingDMThread = async (userId1: string, userId2: string): Pr
 
     return null;
   } catch (error) {
-    console.error('Error finding existing DM thread:', error);
+    console.error('Error finding existing DM thread including deleted:', error);
     return null;
   }
 };
