@@ -2,13 +2,15 @@
 // src/components/messages/MessageThreadListItem.tsx
 "use client";
 
-import type { MessageThread } from '@/lib/types';
+import type { MessageThread, User } from '@/lib/types';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
 import { Users, User as UserIcon, Trash2, MoreVertical, AlertTriangle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { getUserById } from '@/lib/firebase/users';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,7 +27,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useState } from 'react';
 
 interface MessageThreadListItemProps {
   thread: MessageThread;
@@ -38,6 +39,7 @@ interface MessageThreadListItemProps {
 export default function MessageThreadListItem({ thread, isSelected, onSelectThread, onDeleteThread, currentUserId }: MessageThreadListItemProps) {
   const [showDropdown, setShowDropdown] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [otherParticipant, setOtherParticipant] = useState<User | null>(null);
 
   const getInitials = (name?: string) => {
     if (!name) return '?';
@@ -46,8 +48,46 @@ export default function MessageThreadListItem({ thread, isSelected, onSelectThre
     return names[0][0].toUpperCase() + names[names.length - 1][0].toUpperCase();
   };
 
-  const threadName = thread.name || (thread.type === 'dm' ? "Direct Message" : "Team Chat");
-  const fallbackInitials = thread.avatarFallback || getInitials(threadName);
+  // Fetch other participant info for DM threads
+  useEffect(() => {
+    const fetchOtherParticipant = async () => {
+      if (thread.type === 'dm' && thread.participantIds.length === 2) {
+        const otherUserId = thread.participantIds.find(id => id !== currentUserId);
+        if (otherUserId) {
+          try {
+            const user = await getUserById(otherUserId);
+            setOtherParticipant(user);
+          } catch (error) {
+            console.error('Error fetching other participant:', error);
+          }
+        }
+      }
+    };
+
+    fetchOtherParticipant();
+  }, [thread.participantIds, currentUserId, thread.type]);
+
+  // Determine display name and avatar based on thread type
+  const getDisplayInfo = () => {
+    if (thread.type === 'dm' && otherParticipant) {
+      return {
+        name: otherParticipant.name,
+        avatarUrl: otherParticipant.profileImage || '',
+        fallbackInitials: getInitials(otherParticipant.name)
+      };
+    }
+
+    // Fallback to thread data for team chats or when other participant is not loaded
+    return {
+      name: thread.name || (thread.type === 'dm' ? "Direct Message" : "Team Chat"),
+      avatarUrl: thread.avatarUrl || '',
+      fallbackInitials: thread.avatarFallback || getInitials(thread.name)
+    };
+  };
+
+  const displayInfo = getDisplayInfo();
+  const threadName = displayInfo.name;
+  const fallbackInitials = displayInfo.fallbackInitials;
   const lastMessageTime = thread.lastMessageTimestamp
     ? formatDistanceToNow(new Date(thread.lastMessageTimestamp), { addSuffix: true, includeSeconds: true })
     : '';
@@ -82,8 +122,8 @@ export default function MessageThreadListItem({ thread, isSelected, onSelectThre
           className="focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
         >
           <Avatar className="h-10 w-10 mt-0.5">
-            {thread.avatarUrl ? (
-              <AvatarImage src={thread.avatarUrl} alt={threadName} data-ai-hint={thread.type === 'dm' ? 'person' : 'team icon'} />
+            {displayInfo.avatarUrl ? (
+              <AvatarImage src={displayInfo.avatarUrl} alt={threadName} data-ai-hint={thread.type === 'dm' ? 'person' : 'team icon'} />
             ) : (
               thread.type === 'dm' ? <UserIcon className="h-full w-full p-2 text-muted-foreground" /> : <Users className="h-full w-full p-2 text-muted-foreground" />
             )}

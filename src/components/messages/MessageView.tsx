@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Users, User as UserIcon, MessageSquareDashed, ArrowLeft } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
+import { getUserById } from '@/lib/firebase/users';
 
 interface MessageViewProps {
   thread: MessageThread | null;
@@ -38,6 +39,7 @@ export default function MessageView({
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [otherParticipant, setOtherParticipant] = useState<User | null>(null);
   const { toast } = useToast();
 
 
@@ -46,6 +48,27 @@ export default function MessageView({
       viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Fetch other participant info for DM threads
+  useEffect(() => {
+    const fetchOtherParticipant = async () => {
+      if (thread?.type === 'dm' && thread.participantIds.length === 2) {
+        const otherUserId = thread.participantIds.find(id => id !== currentUser.id);
+        if (otherUserId) {
+          try {
+            const user = await getUserById(otherUserId);
+            setOtherParticipant(user);
+          } catch (error) {
+            console.error('Error fetching other participant:', error);
+          }
+        }
+      } else {
+        setOtherParticipant(null);
+      }
+    };
+
+    fetchOtherParticipant();
+  }, [thread?.participantIds, currentUser.id, thread?.type]);
 
   const getInitials = (name?: string) => {
     if (!name) return '?';
@@ -113,8 +136,27 @@ export default function MessageView({
     );
   }
 
-  const threadName = thread.name || (thread.type === 'dm' ? "Direct Message" : "Team Chat");
-  const fallbackInitials = thread.avatarFallback || getInitials(threadName);
+  // Determine display name and avatar based on thread type
+  const getDisplayInfo = () => {
+    if (thread?.type === 'dm' && otherParticipant) {
+      return {
+        name: otherParticipant.name,
+        avatarUrl: otherParticipant.profileImage || '',
+        fallbackInitials: getInitials(otherParticipant.name)
+      };
+    }
+
+    // Fallback to thread data for team chats or when other participant is not loaded
+    return {
+      name: thread?.name || (thread?.type === 'dm' ? "Direct Message" : "Team Chat"),
+      avatarUrl: thread?.avatarUrl || '',
+      fallbackInitials: thread?.avatarFallback || getInitials(thread?.name)
+    };
+  };
+
+  const displayInfo = getDisplayInfo();
+  const threadName = displayInfo.name;
+  const fallbackInitials = displayInfo.fallbackInitials;
 
 
   return (
@@ -134,8 +176,8 @@ export default function MessageView({
         )}
 
         <Avatar className="h-8 w-8 sm:h-10 sm:w-10">
-           {thread.avatarUrl ? (
-            <AvatarImage src={thread.avatarUrl} alt={threadName} data-ai-hint={thread.type === 'dm' ? 'person' : 'team icon'}/>
+           {displayInfo.avatarUrl ? (
+            <AvatarImage src={displayInfo.avatarUrl} alt={threadName} data-ai-hint={thread.type === 'dm' ? 'person' : 'team icon'}/>
           ) : (
              thread.type === 'dm' ? <UserIcon className="h-full w-full p-2 text-muted-foreground" /> : <Users className="h-full w-full p-2 text-muted-foreground" />
           )}

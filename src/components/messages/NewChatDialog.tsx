@@ -171,9 +171,9 @@ export default function NewChatDialog({ isOpen, onOpenChange, onStartChat }: New
                   >
                     <div className="flex items-center gap-3 w-full">
                       <Avatar className="h-10 w-10">
-                        {user.profileImageUrl && (
+                        {user.profileImage && (
                           <AvatarImage
-                            src={user.profileImageUrl}
+                            src={user.profileImage}
                             alt={user.name}
                           />
                         )}
