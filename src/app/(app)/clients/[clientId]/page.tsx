@@ -19,7 +19,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { getClient, updateClient } from '@/lib/firebase/clients';
-import { getSessionsByClient, createSession } from '@/lib/firebase/sessions';
+import { getSessionsByClient, createSession, updateSession, deleteSession } from '@/lib/firebase/sessions';
 import { getTasksByClient, createTask, updateTask, deleteTask } from '@/lib/firebase/tasks';
 import { getAllUsers } from '@/lib/firebase/users';
 
@@ -56,7 +56,7 @@ export default function ClientDetailPage() {
   const canDeleteSystemGeneratedTasks = user?.role === 'Super Admin';
 
 
-  const synchronizePresetTasks = useCallback((currentClient: Client, existingTasks: ToDoTask[]): ToDoTask[] => {
+  const synchronizePresetTasks = useCallback((currentClient: Client, existingTasks: ToDoTask[], skipToast = false): ToDoTask[] => {
     if (!user) return existingTasks;
     let updatedTasks = [...existingTasks];
     let changesMade = false;
@@ -96,8 +96,10 @@ export default function ClientDetailPage() {
       };
       updatedTasks.push(thirtyDayReview);
       changesMade = true;
-      const assigneeText = `Assigned to ${Array.from(assignedNames).join(', ')}.`;
-      toast({ title: "System Task Added", description: `"${thirtyDayReviewDesc}" scheduled. ${assigneeText}`, variant: "default" });
+      if (!skipToast) {
+        const assigneeText = `Assigned to ${Array.from(assignedNames).join(', ')}.`;
+        toast({ title: "System Task Added", description: `"${thirtyDayReviewDesc}" scheduled. ${assigneeText}`, variant: "default" });
+      }
     }
 
     if (thirtyDayReview && (thirtyDayReview.isDone || (thirtyDayReview.dueDate && isPast(addDays(new Date(thirtyDayReview.dueDate), 1))))) {
@@ -130,8 +132,10 @@ export default function ClientDetailPage() {
             };
             updatedTasks.push(newSixtyDayReview);
             changesMade = true;
-            const assigneeText = `Assigned to ${Array.from(assignedNames).join(', ')}.`;
-            toast({ title: "System Task Added", description: `"${sixtyDayFollowUpDesc}" scheduled. ${assigneeText}`, variant: "default" });
+            if (!skipToast) {
+              const assigneeText = `Assigned to ${Array.from(assignedNames).join(', ')}.`;
+              toast({ title: "System Task Added", description: `"${sixtyDayFollowUpDesc}" scheduled. ${assigneeText}`, variant: "default" });
+            }
         }
     }
 
@@ -148,23 +152,54 @@ export default function ClientDetailPage() {
       try {
         setDataLoading(true);
 
-        // Load all data in parallel
-        const [clientData, sessionsData, tasksData, usersData] = await Promise.all([
+        // Load all data in parallel with individual error handling
+        const [clientData, sessionsData, tasksData, usersData] = await Promise.allSettled([
           getClient(clientId),
           getSessionsByClient(clientId),
           getTasksByClient(clientId),
           getAllUsers()
         ]);
 
-        setClient(clientData);
-        setSessions(sessionsData.sort((a, b) => new Date(b.dateOfSession).getTime() - new Date(a.dateOfSession).getTime()));
-        setTodoTasks(tasksData);
-        setAllUsers(usersData);
+        // Handle client data
+        if (clientData.status === 'fulfilled' && clientData.value) {
+          setClient(clientData.value);
+        } else {
+          console.error('Failed to load client:', clientData.status === 'rejected' ? clientData.reason : 'Client not found');
+          setClient(null);
+        }
 
-        // Synchronize preset tasks if client exists
-        if (clientData) {
-          const synchronizedTasks = synchronizePresetTasks(clientData, tasksData);
-          setTodoTasks(synchronizedTasks);
+        // Handle sessions data
+        if (sessionsData.status === 'fulfilled') {
+          setSessions(sessionsData.value.sort((a, b) => new Date(b.dateOfSession).getTime() - new Date(a.dateOfSession).getTime()));
+        } else {
+          console.error('Failed to load sessions:', sessionsData.reason);
+          setSessions([]);
+        }
+
+        // Handle tasks data
+        if (tasksData.status === 'fulfilled') {
+          setTodoTasks(tasksData.value);
+        } else {
+          console.error('Failed to load tasks:', tasksData.reason);
+          setTodoTasks([]);
+        }
+
+        // Handle users data
+        if (usersData.status === 'fulfilled') {
+          setAllUsers(usersData.value);
+        } else {
+          console.error('Failed to load users:', usersData.reason);
+          setAllUsers([]);
+        }
+
+        // Synchronize preset tasks if client exists (skip toast on initial load)
+        if (clientData.status === 'fulfilled' && clientData.value && tasksData.status === 'fulfilled') {
+          try {
+            const synchronizedTasks = synchronizePresetTasks(clientData.value, tasksData.value, true);
+            setTodoTasks(synchronizedTasks);
+          } catch (syncError) {
+            console.error('Error synchronizing preset tasks:', syncError);
+          }
         }
       } catch (error) {
         console.error('Error loading client data:', error);
@@ -179,7 +214,7 @@ export default function ClientDetailPage() {
     };
 
     loadClientData();
-  }, [clientId, user, synchronizePresetTasks, toast]);
+  }, [clientId, user]);
 
   const handleAddSession = async (newSessionData: Omit<SessionNote, 'id' | 'sessionNumber' | 'createdAt' | 'updatedAt'>) => {
     try {
@@ -255,6 +290,28 @@ export default function ClientDetailPage() {
     }
   };
 
+  const handleSessionUpdated = (updatedSession: SessionNote) => {
+    try {
+      setSessions(prevSessions =>
+        prevSessions.map(session =>
+          session.id === updatedSession.id ? updatedSession : session
+        ).sort((a, b) => new Date(b.dateOfSession).getTime() - new Date(a.dateOfSession).getTime())
+      );
+    } catch (error) {
+      console.error('Error updating session in state:', error);
+    }
+  };
+
+  const handleSessionDeleted = (sessionId: string) => {
+    try {
+      setSessions(prevSessions =>
+        prevSessions.filter(session => session.id !== sessionId)
+      );
+    } catch (error) {
+      console.error('Error deleting session from state:', error);
+    }
+  };
+
   const handleToggleToDoTask = async (taskId: string) => {
     if (!user || !client) return;
 
@@ -284,7 +341,7 @@ export default function ClientDetailPage() {
 
       // Synchronize preset tasks if this was a system-generated task that was completed
       if (task.isSystemGenerated && isNowDone && client) {
-        const newTaskList = synchronizePresetTasks(client, updatedTasks);
+        const newTaskList = synchronizePresetTasks(client, updatedTasks, false);
         setTodoTasks(newTaskList);
       }
     } catch (error) {
@@ -576,25 +633,17 @@ export default function ClientDetailPage() {
       )}
 
 
-      {canModifyNotesAndTasks ? (
-        <SessionFeed
-          clientId={client.id}
-          clientName={client.name}
-          sessions={sessions}
-          currentUser={user!}
-          onSessionAdded={handleAddSession}
-          canModifyNotes={canModifyNotesAndTasks}
-        />
-      ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-destructive flex items-center gap-2"><AlertTriangle /> Access Restricted</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-destructive-foreground">You are not a member of Team {client.name} and do not have permission to view or edit session notes or tasks for this client. Please contact an administrator if you believe this is an error.</p>
-          </CardContent>
-        </Card>
-      )}
+      {/* Show sessions to all authenticated users, but restrict editing based on permissions */}
+      <SessionFeed
+        clientId={client.id}
+        clientName={client.name}
+        sessions={sessions}
+        currentUser={user!}
+        onSessionAdded={handleAddSession}
+        onSessionUpdated={handleSessionUpdated}
+        onSessionDeleted={handleSessionDeleted}
+        canModifyNotes={canModifyNotesAndTasks}
+      />
 
       <ProgressReportModal
         report={generatedReport}

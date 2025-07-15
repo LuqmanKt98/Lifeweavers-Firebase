@@ -93,39 +93,88 @@ body {
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Styles for react-day-picker customisations */
+  /* Custom calendar styles for appointment dots */
+  .calendar-day-button {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    font-size: 14px;
+    font-weight: 400;
+  }
+
+  .calendar-day-button:hover {
+    background-color: hsl(var(--muted));
+  }
+
+  .calendar-day-button.selected {
+    background-color: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    font-weight: 600;
+  }
+
+  .calendar-day-button.today {
+    background-color: hsl(var(--accent));
+    color: hsl(var(--primary));
+    font-weight: 600;
+  }
+
+  .calendar-day-button.today.selected {
+    background-color: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+  }
+
+  /* Session indicator dots */
+  .session-dot {
+    position: absolute;
+    bottom: 4px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: hsl(var(--primary));
+  }
+
+  .calendar-day-button.selected .session-dot {
+    background-color: hsl(var(--primary-foreground));
+  }
+
+  .calendar-day-button.today .session-dot {
+    background-color: hsl(var(--primary));
+  }
+
+  .calendar-day-button.today.selected .session-dot {
+    background-color: hsl(var(--primary-foreground));
+  }
+
+  /* Styles for react-day-picker customisations (legacy support) */
   .day-with-session {
     position: relative;
-    /* Optionally, slightly change background or font for days with sessions */
-    /* Example: background-color: hsl(var(--primary)/0.05); */
-    /* Example: font-weight: 600; color: hsl(var(--primary)); */
   }
 
   .day-with-session::after {
     content: '';
     position: absolute;
-    bottom: 2px; /* Adjust position as needed */
+    bottom: 2px;
     left: 50%;
     transform: translateX(-50%);
-    width: 5px; /* Adjust size of the dot */
-    height: 5px; /* Adjust size of the dot */
+    width: 5px;
+    height: 5px;
     border-radius: 50%;
     background-color: hsl(var(--primary));
   }
-  
-  /* Ensure dot is visible on selected days, maybe change color */
+
   .rdp-day_selected.day-with-session::after {
-    background-color: hsl(var(--primary-foreground)); /* Example: white dot on primary background */
+    background-color: hsl(var(--primary-foreground));
   }
 
-  .rdp-day_today.day-with-session::after {
-     /* Keep primary color or change if needed for today's highlight */
-  }
-  
-  /* Ensure the calendar itself can be styled for padding if needed */
   .rdp {
-    --rdp-cell-size: 40px; /* Default cell size, adjust as needed */
-    /* Add any other rdp overrides if necessary */
+    --rdp-cell-size: 40px;
   }
 
   /* Tiptap Editor Content Styles */

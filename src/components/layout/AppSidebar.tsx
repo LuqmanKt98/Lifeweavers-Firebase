@@ -35,6 +35,7 @@ export default function AppSidebar({ isOpen, toggleSidebar }: AppSidebarProps) {
   const navItems = [
     { href: "/dashboard", label: "Dashboard", icon: Home },
     { href: "/appointments", label: "Appointments", icon: CalendarDays },
+    { href: "/cases", label: "Cases", icon: Users },
     { href: "/knowledge-base", label: "Knowledge Base", icon: BookOpen },
     { href: "/resources", label: "Resources", icon: Package }, // Added Resources link
     { href: "/notifications", label: "Notifications", icon: Bell },
@@ -130,6 +131,8 @@ export default function AppSidebar({ isOpen, toggleSidebar }: AppSidebarProps) {
                       pathname.startsWith("/knowledge-base")) ||
                     (item.href === "/resources" &&
                       pathname.startsWith("/resources")) ||
+                    (item.href === "/cases" &&
+                      pathname.startsWith("/cases")) ||
                     (item.href === "/admin/users" &&
                       pathname.startsWith("/admin/users")) ||
                     (item.href === "/admin/cases" &&

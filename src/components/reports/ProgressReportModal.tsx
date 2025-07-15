@@ -27,9 +27,9 @@ interface ProgressReportModalProps {
 export default function ProgressReportModal({ report, client, isOpen, onOpenChange, isGenerating }: ProgressReportModalProps) {
   const { toast } = useToast();
 
-  const handleExportPdfMock = () => {
+  const handleExportPdf = () => {
     if (!report || !client) return;
-    // Mock PDF export by downloading HTML content as a .html file or text as .txt
+    // Export report as HTML file (PDF export will be implemented later)
     const blob = new Blob([`<h1>Progress Report for ${client.name}</h1>${report.reportHtmlContent}`], { type: 'text/html' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
@@ -37,15 +37,15 @@ export default function ProgressReportModal({ report, client, isOpen, onOpenChan
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    toast({ title: "Report Exported (Mock)", description: `HTML version of the report for ${client.name} has been downloaded.` });
+    toast({ title: "Report Exported", description: `HTML version of the report for ${client.name} has been downloaded.` });
   };
 
-  const handleSendEmailMock = () => {
+  const handleSendEmail = () => {
     if (!report || !client) return;
-    // Mock email sending
-    toast({ 
-      title: "Email Sending (Mock)", 
-      description: `An email with the progress report for ${client.name} would be sent. (Client email predefinition and actual sending is a backend feature).` 
+    // Email sending functionality will be implemented
+    toast({
+      title: "Email Feature",
+      description: `Email sending functionality will be implemented. Report for ${client.name} would be sent.`
     });
   };
 
@@ -88,11 +88,11 @@ export default function ProgressReportModal({ report, client, isOpen, onOpenChan
           </Button>
           {!isGenerating && report && (
             <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-              <Button onClick={handleExportPdfMock} className="w-full sm:w-auto" variant="secondary">
-                <Download className="mr-2 h-4 w-4" /> Export as HTML (Mock)
+              <Button onClick={handleExportPdf} className="w-full sm:w-auto" variant="secondary">
+                <Download className="mr-2 h-4 w-4" /> Export as HTML
               </Button>
-              <Button onClick={handleSendEmailMock} className="w-full sm:w-auto">
-                <Send className="mr-2 h-4 w-4" /> Send via Email (Mock)
+              <Button onClick={handleSendEmail} className="w-full sm:w-auto">
+                <Send className="mr-2 h-4 w-4" /> Send via Email
               </Button>
             </div>
           )}

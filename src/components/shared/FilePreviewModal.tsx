@@ -62,8 +62,8 @@ export default function FilePreviewModal({ attachment, isOpen, onOpenChange }: F
            <div className="p-4 text-center bg-muted rounded-md">
              <p className="text-lg font-semibold">Document Preview</p>
              <p className="text-sm text-muted-foreground mb-2">
-                This is a mock preview for {attachment.fileType} files.
-                In a real integration, an embeddable link from Google Drive would be used.
+                Preview for {attachment.fileType} files.
+                Full integration with document services will be implemented.
              </p>
              <iframe
                 src={attachment.url}

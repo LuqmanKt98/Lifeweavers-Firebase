@@ -14,7 +14,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Save, Ban, Paperclip, Trash2, FileText, PlusCircle } from 'lucide-react';
 // Real file upload will be implemented
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface ArticleEditorFormProps {
   initialData?: KnowledgeBaseArticle;
@@ -33,7 +32,7 @@ export default function ArticleEditorForm({ initialData, onSave, onCancel, curre
   const [attachments, setAttachments] = useState<Attachment[]>(initialData?.attachments || []);
 
   const [isSaving, setIsSaving] = useState(false);
-  const [selectedMockFileIndex, setSelectedMockFileIndex] = useState<string>("");
+
   const { toast } = useToast();
 
   useEffect(() => {
@@ -128,20 +127,8 @@ export default function ArticleEditorForm({ initialData, onSave, onCancel, curre
           <div className="space-y-4">
             <Label>Attachments</Label>
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-              <Select value={selectedMockFileIndex} onValueChange={setSelectedMockFileIndex} disabled={isSaving}>
-                <SelectTrigger className="flex-1 bg-background">
-                  <SelectValue placeholder="Select a mock file type to add" />
-                </SelectTrigger>
-                <SelectContent>
-                  {MOCK_FILE_TEMPLATES.map((file, index) => (
-                    <SelectItem key={index} value={index.toString()}>
-                      {file.name} ({file.fileType})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
               <Button type="button" onClick={handleAddAttachment} variant="outline" className="w-full sm:w-auto" disabled={isSaving}>
-                <PlusCircle className="mr-2 h-4 w-4" /> Add Mock Attachment
+                <PlusCircle className="mr-2 h-4 w-4" /> Add Attachment
               </Button>
             </div>
             {attachments.length > 0 && (

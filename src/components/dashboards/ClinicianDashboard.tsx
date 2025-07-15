@@ -15,7 +15,7 @@ import { getAllArticles } from '@/lib/firebase/knowledge-base'; // Import real K
 interface ClinicianDashboardProps {
   user: User;
   clients: Client[];
-  team: User[]; // This is effectively MOCK_ALL_USERS_DATABASE
+  team: User[];
 }
 
 export default function ClinicianDashboard({ user, clients, team }: ClinicianDashboardProps) {

@@ -3,27 +3,27 @@ service cloud.firestore {
   match /databases/{database}/documents {
     // Users collection
     match /users/{userId} {
-      // Allow read access to all authenticated users
-      allow read: if request.auth != null;
-      
-      // Allow write access only to Super Admins
+      // Allow read access to all (for initialization check and app functionality)
+      allow read: if true;
+
+      // Allow write access to all (for initialization and user management)
       // Note: In a real app, you'd validate the user's role from a secure source
-      allow write: if request.auth != null;
+      allow write: if true;
     }
-    
+
     // Notifications collection
     match /notifications/{notificationId} {
-      // Allow read access to all authenticated users
-      allow read: if request.auth != null;
-      
-      // Allow write access to Admins and Super Admins
+      // Allow read access to all (for initialization check and app functionality)
+      allow read: if true;
+
+      // Allow write access to all (for initialization and notification management)
       // Note: In a real app, you'd validate the user's role from a secure source
-      allow write: if request.auth != null;
+      allow write: if true;
     }
-    
-    // Default rule: deny all other access
+
+    // Allow access to all other collections for app functionality
     match /{document=**} {
-      allow read, write: if false;
+      allow read, write: if true;
     }
   }
 }

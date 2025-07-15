@@ -3,23 +3,21 @@
 "use client";
 
 import { useState, useMemo, useEffect } from 'react';
-import { Calendar } from '@/components/ui/calendar';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import type { SessionNote, Client } from '@/lib/types';
-import { format, isSameDay, parseISO, addMinutes, isFuture, isPast, isToday } from 'date-fns';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { CalendarIcon, Clock, MapPin, RefreshCw, Users, Video, Eye, Edit } from 'lucide-react';
+import type { SessionNote, Client, Appointment } from '@/lib/types';
+import { format, isSameDay, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, isToday, isFuture, isPast } from 'date-fns';
+import { CalendarIcon, Clock, ChevronLeft, ChevronRight, User } from 'lucide-react';
 import { getAllClients } from '@/lib/firebase/clients';
+import Link from 'next/link';
 
 interface EventCalendarProps {
-  sessions: SessionNote[];
+  sessions: SessionNote[] | Appointment[];
 }
 
 export default function EventCalendar({ sessions }: EventCalendarProps) {
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
-  const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [clients, setClients] = useState<Client[]>([]);
 
   // Load clients data
@@ -36,31 +34,21 @@ export default function EventCalendar({ sessions }: EventCalendarProps) {
     loadClients();
   }, []);
 
-  const sessionDates = useMemo(() => {
-    return sessions.map(s => new Date(s.dateOfSession));
-  }, [sessions]);
+  const monthStart = startOfMonth(currentDate);
+  const monthEnd = endOfMonth(currentDate);
+  const calendarDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
 
-  const sessionsOnSelectedDate = useMemo(() => {
-    if (!selectedDate) return [];
-    return sessions
-      .filter(session => isSameDay(new Date(session.dateOfSession), selectedDate))
-      .sort((a, b) => new Date(a.dateOfSession).getTime() - new Date(b.dateOfSession).getTime());
-  }, [selectedDate, sessions]);
-
-  const modifiers = {
-    hasSession: sessionDates,
+  const getSessionsForDate = (date: Date) => {
+    return sessions.filter(session =>
+      isSameDay(new Date(session.dateOfSession), date)
+    );
   };
 
-  const modifiersClassNames = {
-    hasSession: 'day-with-session',
-  };
+  const selectedDateSessions = selectedDate ? getSessionsForDate(selectedDate) : [];
 
-  const handleDateSelect = (date: Date | undefined) => {
-    if (date) {
-      setSelectedDate(date);
-    } else {
-      setSelectedDate(undefined);
-    }
+  const navigateMonth = (direction: 'prev' | 'next') => {
+    setCurrentDate(prev => direction === 'prev' ? subMonths(prev, 1) : addMonths(prev, 1));
+    setSelectedDate(null);
   };
 
   const getClientName = (clientId: string): string => {
@@ -68,179 +56,145 @@ export default function EventCalendar({ sessions }: EventCalendarProps) {
     return client?.name || 'Unknown Client';
   };
 
-  const getEventTypeColor = (eventType?: string) => {
-    switch (eventType) {
-      case 'appointment':
-        return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
-      case 'consultation':
-        return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
-      case 'follow-up':
-        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
-      case 'assessment':
-        return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200';
-      case 'meeting':
-        return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200';
-      default:
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
-    }
-  };
-
-  const getStatusColor = (status?: string) => {
-    switch (status) {
-      case 'confirmed':
-        return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
-      case 'tentative':
-        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
-      case 'cancelled':
-        return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
-      default:
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
-    }
-  };
+  const weekDays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
   return (
-    <Card className="shadow-lg">
-      <CardHeader>
-        {/* Title and Description remain unchanged as per previous requests */}
-        <CardTitle className="flex items-center gap-2 text-xl font-semibold text-primary">
-            <CalendarIcon className="h-6 w-6" /> Appointments
-        </CardTitle>
-        <CardDescription>
-            View past and upcoming sessions. Click on a day to see details.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col lg:flex-row gap-6">
-        <div className="lg:w-[calc(50%-0.75rem)] xl:w-[calc(40%-0.75rem)]">
-          <Calendar
-            mode="single"
-            selected={selectedDate}
-            onSelect={handleDateSelect}
-            month={currentMonth}
-            onMonthChange={setCurrentMonth}
-            modifiers={modifiers}
-            modifiersClassNames={modifiersClassNames}
-            className="rounded-md border bg-card p-0 sm:p-1"
-            numberOfMonths={1}
-            pagedNavigation
-            showOutsideDays
-            fixedWeeks
-          />
+    <div className="flex flex-col lg:flex-row gap-6">
+      {/* Calendar Section */}
+      <div className="lg:w-1/2">
+        <div className="bg-card rounded-lg border">
+          {/* Calendar Header */}
+          <div className="flex items-center justify-between p-4 border-b">
+            <div className="flex items-center gap-2">
+              <CalendarIcon className="h-5 w-5 text-primary" />
+              <h3 className="text-lg font-semibold text-primary">
+                {format(currentDate, 'MMMM yyyy')}
+              </h3>
+            </div>
+            <div className="flex gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigateMonth('prev')}
+                className="h-8 w-8 p-0"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigateMonth('next')}
+                className="h-8 w-8 p-0"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          <div className="p-4">
+            <p className="text-sm text-muted-foreground mb-4">
+              View past and upcoming sessions. Click on a day to see details.
+            </p>
+
+            {/* Week days header */}
+            <div className="grid grid-cols-7 gap-1 mb-2">
+              {weekDays.map(day => (
+                <div key={day} className="p-2 text-center text-xs font-medium text-muted-foreground">
+                  {day}
+                </div>
+              ))}
+            </div>
+
+            {/* Calendar grid */}
+            <div className="grid grid-cols-7 gap-1">
+              {calendarDays.map(day => {
+                const dayNumber = day.getDate();
+                const hasSessions = getSessionsForDate(day).length > 0;
+                const isSelected = selectedDate && isSameDay(day, selectedDate);
+                const isTodayDate = isToday(day);
+
+                return (
+                  <button
+                    key={day.toISOString()}
+                    onClick={() => setSelectedDate(day)}
+                    className={`
+                      calendar-day-button
+                      ${isSelected ? 'selected' : ''}
+                      ${isTodayDate ? 'today' : ''}
+                    `}
+                  >
+                    {dayNumber}
+                    {hasSessions && (
+                      <div className="session-dot"></div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
-        <div className="lg:w-[calc(50%-0.75rem)] xl:w-[calc(60%-0.75rem)]">
-          <h3 className="text-lg font-semibold mb-3 text-foreground">
-            Sessions on {selectedDate ? format(selectedDate, 'PPP') : 'selected date'}
-          </h3>
-          <ScrollArea className="h-72 border rounded-md p-3 bg-secondary/30">
-            {sessionsOnSelectedDate.length > 0 ? (
-              <div className="space-y-3">
-                {sessionsOnSelectedDate.map(session => {
-                  const startTime = parseISO(session.dateOfSession);
-                  const duration = (session as any).duration || 60;
-                  const endTime = addMinutes(startTime, duration);
-                  const isGoogleEvent = session.id.startsWith('gcal-') || !!(session as any).googleEventId;
-                  const appointmentType = (session as any).type || 'appointment';
-                  const status = (session as any).status || 'confirmed';
-                  const location = (session as any).location || 'Not specified';
-                  const isUpcoming = isFuture(startTime);
-                  const isSessionToday = isToday(startTime);
+      </div>
 
-                  const getTypeColor = (type: string) => {
-                    switch (type) {
-                      case 'appointment': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
-                      case 'consultation': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
-                      case 'follow-up': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
-                      case 'assessment': return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200';
-                      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
-                    }
-                  };
+      {/* Sessions Section */}
+      <div className="lg:w-1/2">
+        <div className="bg-card rounded-lg border">
+          <div className="p-4 border-b">
+            <h3 className="text-lg font-semibold">
+              {selectedDate ? `Sessions on ${format(selectedDate, 'MMMM do, yyyy')}` : 'Sessions on Selected Date'}
+            </h3>
+          </div>
+          <div className="p-4">
+            {selectedDate ? (
+              selectedDateSessions.length > 0 ? (
+                <div className="space-y-3">
+                  {selectedDateSessions.map(session => {
+                    const isAppointment = 'type' in session;
+                    const clientName = isAppointment
+                      ? (session as Appointment).clientName
+                      : getClientName(session.clientId);
+                    const sessionTime = format(new Date(session.dateOfSession), 'h:mm a');
+                    const endTime = format(
+                      new Date(new Date(session.dateOfSession).getTime() +
+                        (isAppointment ? (session as Appointment).duration : 60) * 60000),
+                      'h:mm a'
+                    );
 
-                  const getStatusColor = (status: string) => {
-                    switch (status) {
-                      case 'confirmed': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
-                      case 'tentative': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
-                      case 'cancelled': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
-                      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
-                    }
-                  };
-
-                  return (
-                    <div
-                      key={session.id}
-                      className={`p-4 rounded-lg border transition-all duration-200 hover:shadow-md ${
-                        isSessionToday
-                          ? 'border-primary bg-primary/5'
-                          : isUpcoming
-                            ? 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950'
-                            : 'border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-950'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2 flex-wrap">
-                            <h4 className="font-semibold text-base">{session.clientName}</h4>
-                            <Badge className={getTypeColor(appointmentType)}>
-                              {appointmentType}
-                            </Badge>
-                            <Badge className={getStatusColor(status)}>
-                              {status}
-                            </Badge>
-                            {isGoogleEvent && (
-                              <Badge variant="outline" className="text-xs">
-                                <RefreshCw className="h-3 w-3 mr-1" />
-                                Synced
-                              </Badge>
-                            )}
-                          </div>
+                    return (
+                      <div
+                        key={session.id}
+                        className="p-3 border rounded-lg bg-background hover:shadow-sm transition-shadow"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="font-medium text-primary">{clientName}</h4>
                         </div>
-                        <div className="flex gap-1">
-                          <Button variant="outline" size="sm">
-                            <Eye className="h-3 w-3" />
-                          </Button>
-                          <Button variant="outline" size="sm">
-                            <Edit className="h-3 w-3" />
-                          </Button>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Clock className="h-4 w-4" />
+                          <span>{sessionTime} - {endTime}</span>
                         </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <div className="grid grid-cols-1 gap-2 text-sm text-muted-foreground">
-                          <div className="flex items-center gap-2">
-                            <Clock className="h-4 w-4" />
-                            <span>
-                              {format(startTime, 'p')} - {format(endTime, 'p')} ({duration} min)
-                            </span>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <MapPin className="h-4 w-4" />
-                            <span>{location}</span>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <Users className="h-4 w-4" />
-                            <span>{session.attendingClinicianName || 'Unassigned'}</span>
-                          </div>
-                        </div>
-
-                        {session.content && (
-                          <div className="text-sm text-muted-foreground">
-                            <div dangerouslySetInnerHTML={{ __html: session.content.substring(0, 100) + '...' }} />
+                        {session.attendingClinicianName && (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+                            <User className="h-4 w-4" />
+                            <span>{session.attendingClinicianName}</span>
                           </div>
                         )}
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground">No sessions scheduled for this day.</p>
+                </div>
+              )
             ) : (
-              <p className="text-sm text-muted-foreground pt-2">
-                {selectedDate ? 'No sessions scheduled for this day.' : 'Select a day from the calendar to view sessions.'}
-              </p>
+              <div className="text-center py-8">
+                <p className="text-muted-foreground">Select a date from the calendar to view sessions.</p>
+              </div>
             )}
-          </ScrollArea>
+          </div>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 

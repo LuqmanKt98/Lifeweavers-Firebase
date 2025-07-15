@@ -19,8 +19,17 @@ const COLLECTION_NAME = 'sessions';
 
 export const createSession = async (sessionData: Omit<SessionNote, 'id' | 'createdAt' | 'updatedAt'>): Promise<SessionNote> => {
   try {
+    // Get the next session number for this client
+    const clientSessionsQuery = query(
+      collection(db, COLLECTION_NAME),
+      where('clientId', '==', sessionData.clientId)
+    );
+    const clientSessionsSnapshot = await getDocs(clientSessionsQuery);
+    const sessionNumber = clientSessionsSnapshot.size + 1;
+
     const docRef = await addDoc(collection(db, COLLECTION_NAME), {
       ...sessionData,
+      sessionNumber,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       attachments: sessionData.attachments || [],
@@ -28,8 +37,8 @@ export const createSession = async (sessionData: Omit<SessionNote, 'id' | 'creat
 
     const newDoc = await getDoc(docRef);
     const data = newDoc.data();
-    return { 
-      id: newDoc.id, 
+    return {
+      id: newDoc.id,
       ...data,
       createdAt: data?.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
       updatedAt: data?.updatedAt?.toDate?.()?.toISOString() || new Date().toISOString(),
@@ -126,6 +135,30 @@ export const getSessionsByClinician = async (clinicianId: string): Promise<Sessi
     });
   } catch (error) {
     console.error('Error getting sessions by clinician:', error);
+    throw error;
+  }
+};
+
+export const getSessionById = async (sessionId: string): Promise<SessionNote | null> => {
+  try {
+    const docRef = doc(db, COLLECTION_NAME, sessionId);
+    const docSnap = await getDoc(docRef);
+
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      return {
+        id: docSnap.id,
+        ...data,
+        createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+        updatedAt: data.updatedAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+        dateOfSession: data.dateOfSession || new Date().toISOString(),
+        attachments: data.attachments || []
+      } as SessionNote;
+    } else {
+      return null;
+    }
+  } catch (error) {
+    console.error('Error getting session by ID:', error);
     throw error;
   }
 };

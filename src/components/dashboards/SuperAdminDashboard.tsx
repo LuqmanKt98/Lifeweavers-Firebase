@@ -50,23 +50,7 @@ export default function SuperAdminDashboard({ user, recentSessions, clients, tea
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Settings className="h-5 w-5 text-primary" /> System Settings
-            </CardTitle>
-            <CardDescription>
-              Configure system-wide settings, preferences, and security options.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button asChild variant="default" className="w-full">
-              <Link href="/admin/settings">
-                System Configuration
-              </Link>
-            </Button>
-          </CardContent>
-        </Card>
+
 
         <Card>
           <CardHeader>

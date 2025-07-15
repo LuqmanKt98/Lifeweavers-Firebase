@@ -2,13 +2,15 @@
 "use client";
 
 import { useState } from 'react';
-import type { SessionNote, Attachment } from '@/lib/types';
+import type { SessionNote, Attachment, User } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { format } from 'date-fns';
-import { CalendarDays, Edit3, Paperclip, Eye, FileText, Image as ImageIcon, Video, FileArchive } from 'lucide-react';
+import { CalendarDays, Edit3, Paperclip, Eye, FileText, Image as ImageIcon, Video, FileArchive, MoreVertical, Edit, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import FilePreviewModal from '@/components/shared/FilePreviewModal';
+import EditSessionDialog from './EditSessionDialog';
 import { cn } from '@/lib/utils';
 
 // Helper function to check if HTML content is effectively empty
@@ -43,12 +45,22 @@ const isContentEffectivelyEmpty = (htmlContent: string | undefined): boolean => 
 
 interface SessionCardProps {
   session: SessionNote;
+  currentUser: User;
   canModifyNotes: boolean;
+  onSessionUpdated?: (updatedSession: SessionNote) => void;
+  onSessionDeleted?: (sessionId: string) => void;
 }
 
-export default function SessionCard({ session, canModifyNotes }: SessionCardProps) {
+export default function SessionCard({
+  session,
+  currentUser,
+  canModifyNotes,
+  onSessionUpdated,
+  onSessionDeleted
+}: SessionCardProps) {
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
   const [selectedAttachment, setSelectedAttachment] = useState<Attachment | null>(null);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 
   const getInitials = (name: string) => {
     const names = name.split(' ');
@@ -76,6 +88,22 @@ export default function SessionCard({ session, canModifyNotes }: SessionCardProp
 
   const contentIsEmpty = isContentEffectivelyEmpty(session.content);
   const attachmentsAreEmpty = !session.attachments || session.attachments.length === 0;
+
+  const canEditSession = session.attendingClinicianId === currentUser.id ||
+                        currentUser.role === 'Admin' ||
+                        currentUser.role === 'Super Admin';
+
+  const handleEditSession = () => {
+    setIsEditDialogOpen(true);
+  };
+
+  const handleSessionUpdated = (updatedSession: SessionNote) => {
+    onSessionUpdated?.(updatedSession);
+  };
+
+  const handleSessionDeleted = (sessionId: string) => {
+    onSessionDeleted?.(sessionId);
+  };
 
   return (
     <>
@@ -145,10 +173,29 @@ export default function SessionCard({ session, canModifyNotes }: SessionCardProp
           <p className="text-xs text-muted-foreground">
             Last updated: {format(new Date(session.updatedAt), 'Pp')}
           </p>
-          {canModifyNotes && (
-            <Button variant="outline" size="sm" disabled> 
-                <Edit3 className="mr-2 h-4 w-4" /> Edit Session
-            </Button>
+          {canModifyNotes && canEditSession && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleEditSession}>
+                  <Edit className="mr-2 h-4 w-4" />
+                  Edit Session
+                </DropdownMenuItem>
+                {(onSessionDeleted) && (
+                  <DropdownMenuItem
+                    onClick={() => setIsEditDialogOpen(true)}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete Session
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </CardFooter>
       </Card>
@@ -160,6 +207,14 @@ export default function SessionCard({ session, canModifyNotes }: SessionCardProp
           onOpenChange={setIsPreviewModalOpen}
         />
       )}
+
+      <EditSessionDialog
+        session={session}
+        isOpen={isEditDialogOpen}
+        onOpenChange={setIsEditDialogOpen}
+        onSessionUpdated={handleSessionUpdated}
+        onSessionDeleted={handleSessionDeleted}
+      />
     </>
   );
 }

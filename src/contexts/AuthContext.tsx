@@ -17,6 +17,11 @@ import {
   signOut as firebaseSignOut,
 } from "firebase/auth";
 import { getUserByEmail, getUserById } from "@/lib/firebase/users";
+import {
+  signInWithGooglePopup,
+  signInWithGoogleRedirect,
+  handleGoogleRedirectResult
+} from "@/lib/firebase/googleAuth";
 
 // Define role-based email mappings
 const ROLE_EMAILS = {
@@ -70,6 +75,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
 
     initializeAuth();
+
+    // Handle Google redirect result on app load
+    const handleRedirectResult = async () => {
+      try {
+        const user = await handleGoogleRedirectResult();
+        if (user) {
+          setUser(user);
+          localStorage.setItem("lifeweaver_user", JSON.stringify(user));
+          localStorage.setItem("lifeweaver_session", "active");
+          router.push("/dashboard");
+        }
+      } catch (error) {
+        console.error('Error handling Google redirect result:', error);
+        toast({
+          title: "Sign-in Error",
+          description: "Failed to complete Google sign-in. Please try again.",
+          variant: "destructive",
+        });
+      }
+    };
+
+    handleRedirectResult();
 
     // Listen to Firebase auth changes but don't depend on them for session management
     const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
@@ -136,6 +163,43 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } catch (error) {
       console.error("Login error:", error);
       throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loginWithGoogle = async (useRedirect: boolean = false) => {
+    setLoading(true);
+    try {
+      let user: User;
+
+      if (useRedirect) {
+        // Use redirect method (better for mobile)
+        await signInWithGoogleRedirect();
+        return; // The redirect will handle the rest
+      } else {
+        // Use popup method (better for desktop)
+        user = await signInWithGooglePopup();
+      }
+
+      // Set user state and localStorage
+      setUser(user);
+      localStorage.setItem("lifeweaver_user", JSON.stringify(user));
+      localStorage.setItem("lifeweaver_session", "active");
+
+      toast({
+        title: "Google Sign-in Successful",
+        description: `Welcome ${user.name}! Redirecting to dashboard...`,
+      });
+
+      router.push("/dashboard");
+    } catch (error) {
+      console.error("Google login error:", error);
+      toast({
+        title: "Google Sign-in Failed",
+        description: (error as Error).message || "Failed to sign in with Google. Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
@@ -249,6 +313,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           loading,
           isImpersonating,
           login,
+          loginWithGoogle,
           logout,
           startImpersonation,
           stopImpersonation,
@@ -280,6 +345,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         loading,
         isImpersonating,
         login,
+        loginWithGoogle,
         logout,
         startImpersonation,
         stopImpersonation,

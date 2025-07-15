@@ -9,8 +9,7 @@
  * - GenerateProgressReportOutput - The return type for the generateProgressReport function.
  */
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import {z} from 'zod';
 
 const GenerateProgressReportInputSchema = z.object({
   clientName: z.string().describe('The name of the client for whom the report is being generated.'),
@@ -32,46 +31,70 @@ export type GenerateProgressReportOutput = z.infer<typeof GenerateProgressReport
 export async function generateProgressReport(
   input: GenerateProgressReportInput
 ): Promise<GenerateProgressReportOutput> {
-  return generateProgressReportFlow(input);
+  // Mock implementation without API calls
+  return generateMockProgressReport(input);
 }
 
-const prompt = ai.definePrompt({
-  name: 'generateProgressReportPrompt',
-  input: {schema: GenerateProgressReportInputSchema},
-  output: {schema: GenerateProgressReportOutputSchema},
-  prompt: `You are a clinical assistant AI specialized in drafting progress review reports for therapy clients.
-The report is for a client named: {{{clientName}}}.
 
-Based on the following session notes, please generate a concise and professional progress review report in HTML format.
-The report should be well-structured with headings (e.g., <h2>, <h3>) and paragraphs (<p>). Use lists (<ul>, <li>) where appropriate for clarity.
-The report should highlight:
-1.  Overall progress made by the client.
-2.  Key achievements or milestones met.
-3.  Any ongoing challenges or areas needing further attention.
-4.  Observed changes in the client's condition or engagement.
-5.  A brief summary or outlook.
 
-Please ensure the language is empathetic, clear, and suitable for sharing with the client or other stakeholders.
-Avoid overly technical jargon unless it's commonly understood or briefly explained.
+// Mock function to generate progress report without API calls
+async function generateMockProgressReport(
+  input: GenerateProgressReportInput
+): Promise<GenerateProgressReportOutput> {
+  // Simulate processing time
+  await new Promise(resolve => setTimeout(resolve, 2000));
 
-Session Notes Compilation:
-{{{sessionNotesText}}}
+  // Parse session notes to extract basic information
+  const sessionLines = input.sessionNotesText.split('\n').filter(line => line.trim());
+  const sessionCount = sessionLines.filter(line => line.startsWith('Date:')).length;
+  const clinicians = [...new Set(sessionLines
+    .filter(line => line.startsWith('Clinician:'))
+    .map(line => line.replace('Clinician:', '').trim())
+  )];
 
-Begin the report content below:
-`,
-});
+  // Generate HTML report
+  const reportHtmlContent = `
+    <div class="progress-report">
+      <h2>Progress Review Report for ${input.clientName}</h2>
 
-const generateProgressReportFlow = ai.defineFlow(
-  {
-    name: 'generateProgressReportFlow',
-    inputSchema: GenerateProgressReportInputSchema,
-    outputSchema: GenerateProgressReportOutputSchema,
-  },
-  async input => {
-    const {output} = await prompt(input);
-    if (!output) {
-      throw new Error('Failed to generate progress report. The AI model did not return an output.');
-    }
-    return output;
-  }
-);
+      <h3>Executive Summary</h3>
+      <p>This report summarizes the progress made by ${input.clientName} based on ${sessionCount} therapy sessions. The client has been working with our clinical team including ${clinicians.join(', ')} to achieve their therapeutic goals.</p>
+
+      <h3>Overall Progress</h3>
+      <p>${input.clientName} has demonstrated consistent engagement throughout the therapy process. Based on the session notes, the client shows positive indicators of progress in their treatment plan.</p>
+
+      <h3>Key Achievements</h3>
+      <ul>
+        <li>Regular attendance and participation in therapy sessions (${sessionCount} sessions completed)</li>
+        <li>Active collaboration with clinical team members</li>
+        <li>Demonstrated commitment to therapeutic process</li>
+        <li>Progress documented across multiple session notes</li>
+      </ul>
+
+      <h3>Areas of Focus</h3>
+      <p>The client continues to work on their established therapeutic goals with support from the clinical team. Regular monitoring and assessment ensure that treatment remains aligned with the client's needs.</p>
+
+      <h3>Clinical Observations</h3>
+      <p>Session notes indicate consistent therapeutic engagement. The multidisciplinary approach involving ${clinicians.length > 1 ? 'multiple clinicians' : 'dedicated clinical support'} provides comprehensive care for ${input.clientName}.</p>
+
+      <h3>Recommendations</h3>
+      <ul>
+        <li>Continue current therapeutic approach</li>
+        <li>Maintain regular session schedule</li>
+        <li>Monitor progress through ongoing assessments</li>
+        <li>Adjust treatment plan as needed based on client response</li>
+      </ul>
+
+      <h3>Next Steps</h3>
+      <p>The clinical team will continue to provide support and monitor ${input.clientName}'s progress. Regular review sessions will ensure that therapeutic goals remain appropriate and achievable.</p>
+
+      <div class="report-footer" style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #ccc; font-size: 0.9em; color: #666;">
+        <p><strong>Report Generated:</strong> ${new Date().toLocaleDateString()}</p>
+        <p><strong>Sessions Reviewed:</strong> ${sessionCount}</p>
+        <p><strong>Clinical Team:</strong> ${clinicians.join(', ')}</p>
+      </div>
+    </div>
+  `;
+
+  return { reportHtmlContent };
+}

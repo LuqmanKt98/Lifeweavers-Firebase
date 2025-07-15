@@ -10,7 +10,8 @@ import { useRouter, usePathname } from 'next/navigation';
 import type { SpecialNotification } from '@/lib/types';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import SpecialNotificationBanner from '@/components/layout/SpecialNotificationBanner';
-import FirebaseInitializer from '@/components/firebase/FirebaseInitializer';
+
+import { useDataCleanup } from '@/hooks/useDataCleanup';
 // Real special notifications will be managed through Firebase
 
 
@@ -18,6 +19,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { currentUser, loading } = useAuth(); // Changed to currentUser
   const router = useRouter();
   const pathname = usePathname();
+
+  // Auto-cleanup orphaned data in background
+  useDataCleanup(!!currentUser);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [activeSpecialNotifications, setActiveSpecialNotifications] = useState<SpecialNotification[]>([]);
 
@@ -48,6 +52,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const getPageTitle = (currentPathname: string): string => {
     if (currentPathname === '/dashboard') return 'Dashboard';
     if (currentPathname === '/appointments') return 'Appointments';
+    if (currentPathname === '/cases') return 'Cases';
     if (currentPathname.startsWith('/clients/')) {
       return 'Client Session Notes';
     }
@@ -84,38 +89,36 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <FirebaseInitializer>
-      <div className="flex h-screen bg-secondary/50 overflow-hidden">
-        <AppSidebar isOpen={sidebarOpen} toggleSidebar={toggleSidebar} />
-        <div className={`flex flex-1 flex-col transition-all duration-300 ease-in-out min-w-0 ${sidebarOpen ? 'md:ml-64' : 'md:ml-16'}`}>
-          <AppHeader user={currentUser} toggleSidebar={toggleSidebar} sidebarOpen={sidebarOpen} pageTitle={pageTitle} />
-          <main className="flex-1 flex flex-col overflow-hidden min-h-0"> {/* Added min-h-0 for proper flex behavior */}
-            {/* Conditional rendering based on page */}
-            {pathname === '/messages' ? (
-              // Messages page gets full height without ScrollArea wrapper
-              <div className="flex-1 min-h-0 overflow-hidden">
-                {children}
+    <div className="flex h-screen bg-secondary/50 overflow-hidden">
+      <AppSidebar isOpen={sidebarOpen} toggleSidebar={toggleSidebar} />
+      <div className={`flex flex-1 flex-col transition-all duration-300 ease-in-out min-w-0 ${sidebarOpen ? 'md:ml-64' : 'md:ml-16'}`}>
+        <AppHeader user={currentUser} toggleSidebar={toggleSidebar} sidebarOpen={sidebarOpen} pageTitle={pageTitle} />
+        <main className="flex-1 flex flex-col overflow-hidden min-h-0"> {/* Added min-h-0 for proper flex behavior */}
+          {/* Conditional rendering based on page */}
+          {pathname === '/messages' ? (
+            // Messages page gets full height without ScrollArea wrapper
+            <div className="flex-1 min-h-0 overflow-hidden">
+              {children}
+            </div>
+          ) : (
+            // Other pages use ScrollArea
+            <ScrollArea className="flex-1 min-h-0">
+              <div className="p-4 md:p-6 lg:p-8 space-y-6">
+               {children}
               </div>
-            ) : (
-              // Other pages use ScrollArea
-              <ScrollArea className="flex-1 min-h-0">
-                <div className="p-4 md:p-6 lg:p-8 space-y-6">
-                 {children}
-                </div>
-              </ScrollArea>
-            )}
-            {/* Banner section moved inside main, after content */}
-            {activeSpecialNotifications.length > 0 && (
-              <div className="p-4 md:p-6 lg:p-8 pt-0">
-                <SpecialNotificationBanner
-                  notifications={activeSpecialNotifications}
-                  onDismiss={handleDismissSpecialNotification}
-                />
-              </div>
-            )}
-          </main>
-        </div>
+            </ScrollArea>
+          )}
+          {/* Banner section moved inside main, after content */}
+          {activeSpecialNotifications.length > 0 && (
+            <div className="p-4 md:p-6 lg:p-8 pt-0">
+              <SpecialNotificationBanner
+                notifications={activeSpecialNotifications}
+                onDismiss={handleDismissSpecialNotification}
+              />
+            </div>
+          )}
+        </main>
       </div>
-    </FirebaseInitializer>
+    </div>
   );
 }

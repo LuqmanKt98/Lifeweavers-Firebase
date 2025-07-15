@@ -4,16 +4,15 @@
 
 import { useState, useEffect } from 'react'; // Added useState, useEffect
 import { useAuth } from '@/contexts/AuthContext';
-import ClinicianDashboard from '@/components/dashboards/ClinicianDashboard';
-import AdminDashboard from '@/components/dashboards/AdminDashboard';
-import SuperAdminDashboard from '@/components/dashboards/SuperAdminDashboard';
+import OverviewDashboard from '@/components/dashboards/OverviewDashboard';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button'; // Added Button
 import type { Client, SessionNote, User } from '@/lib/types';
 import { Lightbulb, RefreshCw, Loader2, CalendarIcon } from 'lucide-react'; // Added RefreshCw, Loader2, CalendarIcon
-import { getAllClients } from '@/lib/firebase/clients';
+import { getAllClients, cleanupOrphanedData } from '@/lib/firebase/clients';
 import { getRecentSessions } from '@/lib/firebase/sessions';
 import { getAllUsers } from '@/lib/firebase/users';
+import { getAllAppointments } from '@/lib/firebase/appointments';
 import EventCalendar from '@/components/shared/EventCalendar';
 import NotificationCard from '@/components/shared/NotificationCard';
 import NotificationPopup from '@/components/notifications/NotificationPopup';
@@ -34,6 +33,7 @@ export default function DashboardPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [sessions, setSessions] = useState<SessionNote[]>([]);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
+  const [appointments, setAppointments] = useState<any[]>([]);
   const [sessionsForCalendarView, setSessionsForCalendarView] = useState<SessionNote[]>([]);
   const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -45,15 +45,53 @@ export default function DashboardPage() {
 
       try {
         setLoading(true);
-        const [clientsData, sessionsData, usersData] = await Promise.all([
+        let [clientsData, sessionsData, usersData, appointmentsData] = await Promise.all([
           getAllClients(),
           getRecentSessions(10),
-          getAllUsers()
+          getAllUsers(),
+          getAllAppointments()
         ]);
+
+        // Auto-cleanup orphaned data
+        try {
+          const cleanupResult = await cleanupOrphanedData();
+          const totalCleaned = cleanupResult.deletedSessions + cleanupResult.deletedAppointments + cleanupResult.deletedTasks + cleanupResult.deletedReports;
+
+          if (totalCleaned > 0) {
+            console.log('🧹 Auto-cleanup completed:', cleanupResult);
+
+            // Show user-friendly notification
+            toast({
+              title: "🧹 Data Cleanup",
+              description: `Automatically cleaned ${totalCleaned} orphaned records to keep your data consistent.`,
+              duration: 3000,
+            });
+
+            // Reload data after cleanup
+            const [updatedSessionsData, updatedAppointmentsData] = await Promise.all([
+              getRecentSessions(10),
+              getAllAppointments()
+            ]);
+
+            // Update state with fresh data
+            setSessions(updatedSessionsData);
+            setAppointments(updatedAppointmentsData);
+          }
+        } catch (cleanupError) {
+          console.warn('Auto-cleanup failed:', cleanupError);
+        }
+
+        console.log('Dashboard data loaded:', {
+          clients: clientsData.length,
+          sessions: sessionsData.length,
+          users: usersData.length,
+          appointments: appointmentsData.length
+        });
 
         setClients(clientsData);
         setSessions(sessionsData);
         setTeamMembers(usersData);
+        setAppointments(appointmentsData);
 
         // Filter sessions based on user role
         let filteredSessions: SessionNote[];
@@ -64,7 +102,18 @@ export default function DashboardPage() {
         } else {
           filteredSessions = [];
         }
-        setSessionsForCalendarView(filteredSessions);
+
+        // Filter appointments based on user role
+        let filteredAppointments = appointmentsData;
+        if (user.role === 'Clinician') {
+          filteredAppointments = appointmentsData.filter(appointment =>
+            appointment.attendingClinicianId === user.id
+          );
+        }
+
+        // Combine sessions and appointments for calendar view
+        const combinedCalendarData = [...filteredSessions, ...filteredAppointments];
+        setSessionsForCalendarView(combinedCalendarData);
 
         // Show notification popup after successful data load (simulating login)
         setTimeout(() => {
@@ -101,11 +150,7 @@ export default function DashboardPage() {
     return "Good evening";
   }
 
-  // Process recent sessions for Admin/SuperAdmin dashboards
-  const sortedRecentSessions = sessions
-    .map(s => ({...s, attachments: s.attachments || []}))
-    .slice()
-    .sort((a,b) => new Date(b.dateOfSession).getTime() - new Date(a.dateOfSession).getTime());
+  // Sessions are now handled by OverviewDashboard component
 
   const handleSyncCalendar = async () => {
     if (!user) return;
@@ -178,21 +223,9 @@ export default function DashboardPage() {
   };
 
 
-  const renderDashboard = () => {
-    switch (user.role) {
-      case 'Clinician':
-        const clinicianClients = clients.filter(client =>
-          client.teamMemberIds?.includes(user.id)
-        );
-        return <ClinicianDashboard user={user} clients={clinicianClients} team={teamMembers} />;
-      case 'Admin':
-        return <AdminDashboard user={user} recentSessions={sortedRecentSessions} clients={clients} team={teamMembers} />;
-      case 'Super Admin':
-        return <SuperAdminDashboard user={user} recentSessions={sortedRecentSessions} clients={clients} team={teamMembers} />;
-      default:
-        return <p>Unknown user role.</p>;
-    }
-  };
+
+
+  // Use dynamic OverviewDashboard for all users - no more role-specific dashboards
 
   return (
     <div className="space-y-6">
@@ -204,38 +237,34 @@ export default function DashboardPage() {
         <NotificationPopup onClose={() => setShowNotificationPopup(false)} />
       )}
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-         <CardTitle className="flex items-center gap-2 text-xl font-semibold text-primary">
-            <CalendarIcon className="h-6 w-6" /> Appointments
-          </CardTitle>
-          {(user.role === 'Admin' || user.role === 'Super Admin') && (
-            <Button onClick={handleSyncCalendar} disabled={isSyncingCalendar} variant="outline" size="sm">
-              {isSyncingCalendar ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-              {isSyncingCalendar ? 'Syncing Calendar...' : 'Sync Google Calendar'}
-            </Button>
-          )}
+      <Card className="mb-6">
+        <CardHeader>
+          <div className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-xl font-semibold text-primary">
+                <CalendarIcon className="h-6 w-6" /> Appointments
+              </CardTitle>
+              <CardDescription>
+                View past and upcoming sessions. Click on a day to see details.
+              </CardDescription>
+            </div>
+            <div className="flex gap-2">
+              {(user.role === 'Admin' || user.role === 'Super Admin') && (
+                <Button onClick={handleSyncCalendar} disabled={isSyncingCalendar} variant="outline" size="sm">
+                  {isSyncingCalendar ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                  {isSyncingCalendar ? 'Syncing Calendar...' : 'Sync Google Calendar'}
+                </Button>
+              )}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
            <EventCalendar sessions={sessionsForCalendarView} />
         </CardContent>
       </Card>
 
-      <Card className="bg-gradient-to-r from-primary/10 to-accent/10 border-primary/20">
-        <CardHeader>
-          <CardTitle className="text-3xl font-bold text-primary">
-            {getWelcomeMessage()}, {user.name}!
-          </CardTitle>
-          <CardDescription className="text-lg text-foreground/80">
-            Here's what's happening in LWV CLINIC E-DOC today.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex items-center gap-2 text-sm text-foreground/70">
-            <Lightbulb className="h-5 w-5 text-accent-foreground" />
-            <span>Quick Tip: Use the sidebar to navigate to your clients or manage users.</span>
-        </CardContent>
-      </Card>
-      {renderDashboard()}
+      {/* Use the new dynamic overview dashboard for all users */}
+      <OverviewDashboard user={user} />
     </div>
   );
 }

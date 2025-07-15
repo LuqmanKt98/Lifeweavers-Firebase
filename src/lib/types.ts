@@ -37,16 +37,47 @@ export interface Attachment {
 export interface SessionNote {
   id: string;
   clientId: string;
-  sessionNumber: number;
+  clientName?: string; // Added for convenience
+  sessionNumber?: number; // Made optional since it might be auto-generated
   dateOfSession: string; // ISO string
   attendingClinicianId: string;
   attendingClinicianName: string;
   attendingClinicianVocation?: string;
   content: string; // Rich text content / HTML
+  sessionType?: string; // Added for session type
+  duration?: number; // Added for session duration in minutes
+  location?: string; // Added for session location
   attachments?: Attachment[]; // Array of attached files
   createdAt: string; // ISO string
   updatedAt: string; // ISO string
+  createdByUserId?: string; // Added for tracking who created the session
+  createdByUserName?: string; // Added for tracking who created the session
   // For version history, more fields would be needed
+}
+
+// Appointment Management Types
+export type AppointmentType = "appointment" | "consultation" | "follow-up" | "assessment" | "meeting";
+export type AppointmentStatus = "confirmed" | "tentative" | "cancelled" | "completed";
+
+export interface Appointment {
+  id: string;
+  clientId: string;
+  clientName: string;
+  attendingClinicianId: string;
+  attendingClinicianName: string;
+  attendingClinicianVocation?: string;
+  type: AppointmentType;
+  status: AppointmentStatus;
+  dateOfSession: string; // ISO string
+  duration: number; // Duration in minutes
+  location?: string;
+  content?: string; // Notes or description
+  isRecurring?: boolean;
+  recurringPattern?: string;
+  createdAt: string; // ISO string
+  updatedAt: string; // ISO string
+  createdByUserId: string;
+  createdByUserName: string;
 }
 
 // Notifications and Messages Types
@@ -214,6 +245,7 @@ export interface AuthContextType {
   loading: boolean;
   isImpersonating: boolean;
   login: (email: string, password: string) => Promise<void>;
+  loginWithGoogle: (useRedirect?: boolean) => Promise<void>;
   logout: () => Promise<void>;
   startImpersonation: (targetUser: User) => Promise<void>;
   stopImpersonation: () => Promise<void>;

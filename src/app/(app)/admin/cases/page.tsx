@@ -9,99 +9,17 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { ShieldAlert, FolderSync, Loader2, CheckCircle, XCircle, Info, Edit2, Users, ArrowRight, Search, PlusCircle } from 'lucide-react';
+import { ShieldAlert, FolderSync, Loader2, CheckCircle, XCircle, Info, Edit2, Users, ArrowRight, Search, PlusCircle, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format, formatDistanceToNow } from 'date-fns';
 import type { Client, SessionNote, User } from '@/lib/types';
-import { getAllClients } from '@/lib/firebase/clients';
+import { getAllClients, cleanupOrphanedData, deleteClient } from '@/lib/firebase/clients';
 import { getAllSessions } from '@/lib/firebase/sessions';
 import { getAllUsers } from '@/lib/firebase/users';
 import { Input } from '@/components/ui/input';
 
 
-// Mock representation of Google Drive structure
-interface MockDriveFile {
-  id: string;
-  name: string;
-  type: 'file' | 'folder';
-  content?: string; // For Google Docs
-  children?: MockDriveFile[]; // For folders
-  lastModifiedTime?: string; // ISO date string
-}
-
-const MOCK_GOOGLE_DRIVE_ROOT: MockDriveFile[] = [
-  {
-    id: 'folder_2023',
-    name: '2023', // Year
-    type: 'folder',
-    children: [
-      {
-        id: 'folder_client_mary_jane_2023',
-        name: 'Mary Jane', // Client Name
-        type: 'folder',
-        children: [
-          {
-            id: 'doc_mary_jane_notes_2023',
-            name: 'Internal Doc for Mary Jane - Therapy Notes.gdoc',
-            type: 'file',
-            content: `Session: 1 | Clinician: Casey Clinician | Date: 2023-01-15 10:00\nInitial consultation for Mary. Discussed history and goals.\n---\nSession: 2 | Clinician: Casey Clinician | Date: 2023-01-22 10:00 | Location: Clinic A\nReviewed initial exercises. Patient reports mild improvement in pain levels.`,
-            lastModifiedTime: new Date(2023, 0, 23).toISOString(),
-          },
-        ],
-      },
-      {
-        id: 'folder_client_peter_parker_2023',
-        name: 'Peter Parker',
-        type: 'folder',
-        children: [
-          {
-            id: 'doc_peter_parker_notes_2023',
-            name: 'Internal Doc - Peter Parker Sessions.gdoc',
-            type: 'file',
-            content: `Session: 1 | Clinician: Jamie Therapist | Date: 2023-03-01 14:30 | Duration: 45min\nAssessment of Peter's shoulder pain. ROM exercises prescribed.\n---\nSession: 2 | Clinician: Jamie Therapist | Date: 2023-03-08 14:30\nFollow-up. Patient compliant with exercises. Pain reduced significantly.`,
-            lastModifiedTime: new Date(2023, 2, 9).toISOString(),
-          }
-        ],
-      },
-    ],
-  },
-  {
-    id: 'folder_2024',
-    name: '2024', // Year
-    type: 'folder',
-    children: [
-       {
-        id: 'folder_client_gwen_stacy_2024',
-        name: 'Gwen Stacy',
-        type: 'folder',
-        children: [
-          {
-            id: 'doc_gwen_stacy_notes_2024',
-            name: 'Internal Doc - Gwen Stacy Therapy.gdoc',
-            type: 'file',
-            content: `Session: 1 | Clinician: Taylor New | Date: 2024-02-10 09:00\nIntake session for Gwen. Focus on anxiety management techniques. Provided initial resources.`,
-            lastModifiedTime: new Date(2024, 1, 10).toISOString(),
-          }
-        ],
-      },
-      { // Add an existing client from MOCK_CLIENTS_DB to test updates
-        id: 'folder_client_john_doe_2024',
-        name: 'John Doe', // Existing client
-        type: 'folder',
-        children: [
-          {
-            id: 'doc_john_doe_notes_2024',
-            name: 'Internal Doc for John Doe - Therapy Notes.gdoc',
-            type: 'file',
-            // Add a new session for John Doe
-            content: `Session: 5 | Clinician: Casey Clinician | Date: 2024-01-05 11:00\nNew session for John in 2024. Patient reports feeling much better. Discussed maintenance plan.`,
-            lastModifiedTime: new Date(2024, 0, 6).toISOString(),
-          },
-        ],
-      },
-    ]
-  }
-];
+// All mock data removed - using real Firebase data now
 
 
 export default function CasesManagementPage() {
@@ -130,6 +48,19 @@ export default function CasesManagementPage() {
           getAllSessions(),
           getAllUsers()
         ]);
+
+        // Auto-cleanup orphaned data
+        try {
+          const cleanupResult = await cleanupOrphanedData();
+          if (cleanupResult.deletedSessions > 0 || cleanupResult.deletedAppointments > 0 || cleanupResult.deletedTasks > 0 || cleanupResult.deletedReports > 0) {
+            console.log('🧹 Auto-cleanup completed in cases page:', cleanupResult);
+            // Reload sessions data after cleanup
+            const updatedSessionsData = await getAllSessions();
+            setSessions(updatedSessionsData);
+          }
+        } catch (cleanupError) {
+          console.warn('Auto-cleanup failed:', cleanupError);
+        }
 
         setClients(clientsData);
         setSessions(sessionsData);
@@ -200,144 +131,87 @@ export default function CasesManagementPage() {
     return names[0][0].toUpperCase() + names[names.length - 1][0].toUpperCase();
   };
 
-  const parseSessionString = (sessionStr: string, defaultClinicianName: string, defaultDate: string): Partial<SessionNote> => {
-    const sessionData: Partial<SessionNote> = {};
-    const parts = sessionStr.split('|').map(p => p.trim());
-    let noteContent = sessionStr;
+  // Removed parseSessionString function - no longer needed with real Firebase data
 
-    parts.forEach(part => {
-        if (part.toLowerCase().startsWith('session:')) {
-            sessionData.sessionNumber = parseInt(part.substring(8).trim(), 10);
-            noteContent = noteContent.replace(part, '').trim().replace(/^\|/, '').trim();
-        } else if (part.toLowerCase().startsWith('clinician:')) {
-            sessionData.attendingClinicianName = part.substring(10).trim();
-            noteContent = noteContent.replace(part, '').trim().replace(/^\|/, '').trim();
-        } else if (part.toLowerCase().startsWith('date:')) {
-            const dateStr = part.substring(5).trim();
-            const parsedDate = new Date(dateStr);
-            if (!isNaN(parsedDate.getTime())) {
-               sessionData.dateOfSession = parsedDate.toISOString();
-            }
-            noteContent = noteContent.replace(part, '').trim().replace(/^\|/, '').trim();
-        }
-    });
-
-    const contentBreak = noteContent.indexOf('\n');
-    if (contentBreak !== -1 && contentBreak < 100) {
-        const firstLine = noteContent.substring(0, contentBreak).toLowerCase();
-        if (!firstLine.includes('session:') && !firstLine.includes('clinician:') && !firstLine.includes('date:')) {
-            sessionData.content = `<p>${noteContent.substring(contentBreak + 1).trim().replace(/\n/g, '</p><p>')}</p>`;
-        } else {
-             sessionData.content = `<p>${noteContent.substring(contentBreak + 1).trim().replace(/\n/g, '</p><p>')}</p>`;
-        }
-    } else {
-        sessionData.content = `<p>${noteContent.trim().replace(/\n/g, '</p><p>')}</p>`;
+  const handleDeleteClient = async (clientId: string, clientName: string) => {
+    if (!confirm(`Are you sure you want to delete ${clientName}? This will also delete all their sessions, appointments, tasks, and reports. This action cannot be undone.`)) {
+      return;
     }
 
-    if (!sessionData.attendingClinicianName) sessionData.attendingClinicianName = defaultClinicianName;
-    if (!sessionData.dateOfSession) sessionData.dateOfSession = new Date(defaultDate).toISOString();
+    try {
+      setLoading(true);
+      await deleteClient(clientId);
 
-    const clinicianUser = users.find(u => u.name === sessionData.attendingClinicianName);
-    sessionData.attendingClinicianId = clinicianUser?.id || users[0]?.id || 'unknown_clinician';
-    sessionData.attendingClinicianVocation = clinicianUser?.vocation;
+      toast({
+        title: "Client Deleted",
+        description: `${clientName} and all related data have been deleted successfully.`,
+      });
 
-    return sessionData;
+      // Refresh data
+      await loadData();
+    } catch (error) {
+      console.error('Error deleting client:', error);
+      toast({
+        title: "Delete Failed",
+        description: `Failed to delete ${clientName}. Please try again.`,
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleSyncData = async () => {
+  const handleRefreshData = async () => {
     setIsSyncing(true);
     setSyncedItemsLog([]);
     toast({
-      title: "Synchronization Started",
-      description: "Attempting to sync client data from Google Drive... (Mock Operation)",
+      title: "Refreshing Data",
+      description: "Reloading all client data from Firebase...",
     });
 
-    let newClientsCount = 0;
-    let updatedClientsCount = 0;
-    let newSessionsCount = 0;
     const currentSyncedItems: string[] = [];
 
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
     try {
-      for (const yearFolder of MOCK_GOOGLE_DRIVE_ROOT) {
-        currentSyncedItems.push(`Processing year: ${yearFolder.name}`);
-        setSyncedItemsLog([...currentSyncedItems]);
-        await new Promise(resolve => setTimeout(resolve, 500));
+      currentSyncedItems.push("Loading clients from Firebase...");
+      setSyncedItemsLog([...currentSyncedItems]);
 
-        if (!yearFolder.children) continue;
+      const [clientsData, sessionsData, usersData] = await Promise.all([
+        getAllClients(),
+        getAllSessions(),
+        getAllUsers()
+      ]);
 
-        for (const clientFolder of yearFolder.children) {
-          currentSyncedItems.push(`  Found client folder: ${clientFolder.name}`);
-          setSyncedItemsLog([...currentSyncedItems]);
-          await new Promise(resolve => setTimeout(resolve, 300));
+      currentSyncedItems.push(`Loaded ${clientsData.length} clients`);
+      currentSyncedItems.push(`Loaded ${sessionsData.length} sessions`);
+      currentSyncedItems.push(`Loaded ${usersData.length} users`);
+      setSyncedItemsLog([...currentSyncedItems]);
 
-          const clientName = clientFolder.name;
-          const clientKey = `client-${clientName.toLowerCase().replace(/\s+/g, '-')}`;
-          let clientObject = clients.find(c => c.id === clientKey);
+      setClients(clientsData);
+      setSessions(sessionsData);
+      setUsers(usersData);
 
-          if (!clientObject) {
-            // In a real implementation, you would create the client in Firebase here
-            // For now, we'll just simulate the process
-            newClientsCount++;
-            currentSyncedItems.push(`    Would add new client: ${clientName}`);
-          } else {
-            updatedClientsCount++;
-            currentSyncedItems.push(`    Would update existing client: ${clientName}`);
-          }
-          setSyncedItemsLog([...currentSyncedItems]);
-
-          const notesFile = clientFolder.children?.find(file => file.name.toLowerCase().includes('internal doc') && file.name.toLowerCase().endsWith('.gdoc'));
-          if (notesFile && notesFile.content) {
-            currentSyncedItems.push(`    Processing notes file: ${notesFile.name}`);
-            setSyncedItemsLog([...currentSyncedItems]);
-            await new Promise(resolve => setTimeout(resolve, 500));
-
-            const clientSessions = sessions.filter(s => s.clientId === clientKey);
-
-            const sessionStrings = notesFile.content.split('---').map(s => s.trim()).filter(s => s);
-            sessionStrings.forEach((sessionStr, index) => {
-              const parsedSession = parseSessionString(sessionStr, users[0]?.name || 'Unknown Clinician', notesFile.lastModifiedTime || new Date().toISOString());
-
-              const existingSession = clientSessions.find(
-                s => s.content === parsedSession.content &&
-                     new Date(s.dateOfSession).toDateString() === new Date(parsedSession.dateOfSession || Date.now()).toDateString() &&
-                     s.sessionNumber === parsedSession.sessionNumber
-              );
-
-              if (!existingSession && parsedSession.content && parsedSession.sessionNumber && parsedSession.dateOfSession) {
-                // In a real implementation, you would create the session in Firebase here
-                // For now, we'll just simulate the process
-                newSessionsCount++;
-                currentSyncedItems.push(`      Would add session #${parsedSession.sessionNumber} for ${clientName}`);
-                setSyncedItemsLog([...currentSyncedItems]);
-              }
-            });
-          }
-        }
-      }
-
-      const summary = `Sync complete. New Clients: ${newClientsCount}. Updated Clients: ${updatedClientsCount}. New Sessions: ${newSessionsCount}.`;
+      const summary = `Data refresh complete. Clients: ${clientsData.length}, Sessions: ${sessionsData.length}, Users: ${usersData.length}`;
       currentSyncedItems.push(summary);
       setLastSyncStatus({ success: true, timestamp: new Date().toISOString(), details: summary });
+
       toast({
-        title: "Synchronization Successful (Mock)",
+        title: "Data Refreshed",
         description: summary,
         className: "bg-green-500/10 border-green-500 text-green-700 dark:bg-green-500/20 dark:text-green-400",
       });
 
     } catch (error) {
-      const errorMsg = `Mock Sync Error: ${(error as Error).message}.`;
+      const errorMsg = `Refresh Error: ${(error as Error).message}`;
       currentSyncedItems.push(errorMsg);
       setLastSyncStatus({ success: false, timestamp: new Date().toISOString(), details: errorMsg });
       toast({
-        title: "Synchronization Failed (Mock)",
+        title: "Data Refresh Failed",
         description: errorMsg,
         variant: "destructive",
       });
     } finally {
       setIsSyncing(false);
-      setSyncedItemsLog([...currentSyncedItems, "--- Sync Finished ---"]);
+      setSyncedItemsLog([...currentSyncedItems, "--- Refresh Finished ---"]);
     }
   };
 
@@ -406,9 +280,19 @@ export default function CasesManagementPage() {
                     <TableCell>{format(new Date(client.dateAdded), 'PPP')} ({formatDistanceToNow(new Date(client.dateAdded), { addSuffix: true })})</TableCell>
                     <TableCell>{client.teamMemberIds?.length || 0} member(s)</TableCell>
                     <TableCell className="text-right">
-                      <Button variant="outline" size="sm" asChild>
-                        <Link href={`/clients/${client.id}`}>View Details <ArrowRight className="ml-2 h-4 w-4" /></Link>
-                      </Button>
+                      <div className="flex items-center gap-2 justify-end">
+                        <Button variant="outline" size="sm" asChild>
+                          <Link href={`/clients/${client.id}`}>View Details <ArrowRight className="ml-2 h-4 w-4" /></Link>
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => handleDeleteClient(client.id, client.name)}
+                          disabled={loading}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -427,26 +311,25 @@ export default function CasesManagementPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-xl">Google Drive Synchronization (Mock)</CardTitle>
+          <CardTitle className="text-xl">Data Management</CardTitle>
           <CardDescription>
-            This simulates updating client information and session notes from a mock Google Drive structure.
-            Client data is stored at <a href="https://drive.google.com/drive/folders/1IxuDBR22XIlHw96kuaePqfyZPPJIQR8l?usp=drive_link" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">this mock Drive link</a>.
+            Refresh and manage client data from Firebase database.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center p-3 rounded-md bg-accent/20 border border-accent/50">
-            <Info className="h-5 w-5 text-accent-foreground mr-3 flex-shrink-0" />
-            <p className="text-sm text-accent-foreground">
-              <strong>Mock Feature:</strong> This is a demonstration of Google Drive synchronization. No actual data is transferred from a live Google Drive. All operations are simulated using predefined mock data structures.
+          <div className="flex items-center p-3 rounded-md bg-primary/10 border border-primary/20">
+            <Info className="h-5 w-5 text-primary mr-3 flex-shrink-0" />
+            <p className="text-sm text-primary">
+              <strong>Real-time Data:</strong> All client data is loaded from Firebase in real-time. Use the refresh button to reload the latest data from the database.
             </p>
           </div>
-          <Button onClick={handleSyncData} disabled={isSyncing} className="w-full sm:w-auto">
+          <Button onClick={handleRefreshData} disabled={isSyncing} className="w-full sm:w-auto">
             {isSyncing ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <FolderSync className="mr-2 h-4 w-4" />
             )}
-            {isSyncing ? 'Syncing Data...' : 'Sync Client Data from Mock Drive'}
+            {isSyncing ? 'Refreshing Data...' : 'Refresh Client Data'}
           </Button>
            {syncedItemsLog.length > 0 && (
             <div className="mt-4 p-3 border rounded-md bg-secondary/30 max-h-60 overflow-y-auto">
@@ -463,13 +346,13 @@ export default function CasesManagementPage() {
               <div className="flex items-center gap-2">
                 {lastSyncStatus.success ? <CheckCircle className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
                 <span>
-                  Last sync attempt: {format(new Date(lastSyncStatus.timestamp), 'PPPp')} - Status: {lastSyncStatus.success ? 'Successful' : 'Failed'}
+                  Last refresh: {format(new Date(lastSyncStatus.timestamp), 'PPPp')} - Status: {lastSyncStatus.success ? 'Successful' : 'Failed'}
                 </span>
               </div>
               {lastSyncStatus.details && <p className="text-xs pl-6">{lastSyncStatus.details}</p>}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">No synchronization attempts yet in this session.</p>
+            <p className="text-sm text-muted-foreground">No data refresh attempts yet in this session.</p>
           )}
         </CardFooter>
       </Card>

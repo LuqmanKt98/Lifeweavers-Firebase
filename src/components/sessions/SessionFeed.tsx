@@ -14,10 +14,21 @@ interface SessionFeedProps {
   sessions: SessionNote[];
   currentUser: User;
   onSessionAdded: (newSessionData: Omit<SessionNote, 'id' | 'sessionNumber' | 'createdAt' | 'updatedAt'>) => void;
+  onSessionUpdated?: (updatedSession: SessionNote) => void;
+  onSessionDeleted?: (sessionId: string) => void;
   canModifyNotes: boolean;
 }
 
-export default function SessionFeed({ clientId, clientName, sessions, currentUser, onSessionAdded, canModifyNotes }: SessionFeedProps) {
+export default function SessionFeed({
+  clientId,
+  clientName,
+  sessions,
+  currentUser,
+  onSessionAdded,
+  onSessionUpdated,
+  onSessionDeleted,
+  canModifyNotes
+}: SessionFeedProps) {
   const [showEditor, setShowEditor] = useState(false);
   
   const handleSaveSession = (sessionData: Omit<SessionNote, 'id' | 'sessionNumber' | 'createdAt' | 'updatedAt'>) => {
@@ -52,7 +63,14 @@ export default function SessionFeed({ clientId, clientName, sessions, currentUse
       {sessions.length > 0 ? (
         <div className="space-y-6">
           {sessions.map((session) => (
-            <SessionCard key={session.id} session={session} canModifyNotes={canModifyNotes} />
+            <SessionCard
+              key={session.id}
+              session={session}
+              currentUser={currentUser}
+              canModifyNotes={canModifyNotes}
+              onSessionUpdated={onSessionUpdated}
+              onSessionDeleted={onSessionDeleted}
+            />
           ))}
         </div>
       ) : (

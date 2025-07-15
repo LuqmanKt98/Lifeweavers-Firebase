@@ -78,7 +78,7 @@ export const getUserByEmail = async (email: string): Promise<User | null> => {
 };
 
 // Add new user
-export const addUser = async (userData: Omit<User, 'id'>): Promise<User> => {
+export const addUser = async (userData: Omit<User, 'id'>, isGoogleAuth: boolean = false): Promise<User> => {
   try {
     // Check if email already exists
     const existingUser = await getUserByEmail(userData.email);
@@ -86,8 +86,8 @@ export const addUser = async (userData: Omit<User, 'id'>): Promise<User> => {
       throw new Error('A user with this email already exists');
     }
 
-    // Validate password is provided
-    if (!userData.password) {
+    // Validate password is provided (not required for Google auth users)
+    if (!isGoogleAuth && !userData.password) {
       throw new Error('Password is required');
     }
 

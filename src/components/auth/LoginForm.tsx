@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/card";
 import { Mail, Loader2, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { GoogleSignInButton } from "./GoogleSignInButton";
 
 export function LoginForm() {
   const [email, setEmail] = useState("");
@@ -125,6 +126,22 @@ export function LoginForm() {
               "Sign In"
             )}
           </Button>
+
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-background px-2 text-muted-foreground">
+                Or continue with
+              </span>
+            </div>
+          </div>
+
+          <GoogleSignInButton
+            disabled={loading || isSubmitting}
+            useRedirect={false} // Use popup by default, can be changed to true for mobile
+          />
         </CardFooter>
       </form>
     </Card>
