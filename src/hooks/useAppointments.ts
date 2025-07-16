@@ -92,44 +92,59 @@ export function useAppointments(options: UseAppointmentsOptions = {}): UseAppoin
   useEffect(() => {
     if (!realtime) return;
 
-    setLoading(true);
-    setError(null);
+    try {
+      setLoading(true);
+      setError(null);
 
-    const q = buildQuery();
-    
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        try {
-          const appointmentsData: Appointment[] = [];
-          
-          snapshot.forEach((doc) => {
-            const data = doc.data();
-            appointmentsData.push({
-              id: doc.id,
-              ...data,
-              createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt,
-              updatedAt: data.updatedAt?.toDate?.()?.toISOString() || data.updatedAt,
-              dateOfSession: data.dateOfSession?.toDate?.()?.toISOString() || data.dateOfSession,
-            } as Appointment);
-          });
+      const q = buildQuery();
 
-          setAppointments(appointmentsData);
-          setLoading(false);
-        } catch (err) {
-          console.error('Error processing appointments:', err);
-          setError('Failed to load appointments');
+      const unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          try {
+            const appointmentsData: Appointment[] = [];
+
+            snapshot.forEach((doc) => {
+              try {
+                const data = doc.data();
+
+                // Safely handle date conversions
+                const processedData = {
+                  id: doc.id,
+                  ...data,
+                  createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt || new Date().toISOString(),
+                  updatedAt: data.updatedAt?.toDate?.()?.toISOString() || data.updatedAt || new Date().toISOString(),
+                  dateOfSession: data.dateOfSession?.toDate?.()?.toISOString() || data.dateOfSession || new Date().toISOString(),
+                } as Appointment;
+
+                appointmentsData.push(processedData);
+              } catch (docError) {
+                console.warn('Error processing appointment document:', doc.id, docError);
+                // Skip this document but continue with others
+              }
+            });
+
+            setAppointments(appointmentsData);
+            setLoading(false);
+          } catch (err) {
+            console.error('Error processing appointments snapshot:', err);
+            setError('Failed to process appointments data');
+            setLoading(false);
+          }
+        },
+        (err) => {
+          console.error('Error listening to appointments:', err);
+          setError(`Failed to load appointments: ${err.message || 'Unknown error'}`);
           setLoading(false);
         }
-      },
-      (err) => {
-        console.error('Error listening to appointments:', err);
-        setError('Failed to load appointments');
-        setLoading(false);
-      }
-    );
+      );
 
-    return () => unsubscribe();
+      return () => unsubscribe();
+    } catch (error) {
+      console.error('Error setting up appointments listener:', error);
+      setError(`Failed to initialize appointments: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setLoading(false);
+    }
   }, [buildQuery, realtime]);
 
   // Manual refetch function

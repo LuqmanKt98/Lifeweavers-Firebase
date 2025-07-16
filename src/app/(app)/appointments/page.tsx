@@ -37,8 +37,9 @@ export default function AppointmentsPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
 
-  // Use real-time appointments hook
+  // Use real-time appointments hook with error handling
   const {
     appointments: realTimeAppointments,
     loading: appointmentsLoading,
@@ -138,7 +139,22 @@ export default function AppointmentsPage() {
     return <div>Please log in to view appointments.</div>;
   }
 
-  return (
+  if (pageError) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold mb-2">Error Loading Appointments</h2>
+          <p className="text-muted-foreground mb-4">{pageError}</p>
+          <Button onClick={() => window.location.reload()}>
+            Refresh Page
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  try {
+    return (
     <div className="space-y-6">
       {/* Header */}
       <Card>
@@ -317,4 +333,19 @@ export default function AppointmentsPage() {
       </div>
     </div>
   );
+  } catch (error) {
+    console.error('Appointments page error:', error);
+    setPageError(error instanceof Error ? error.message : 'Unknown error occurred');
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold mb-2">Error Loading Appointments</h2>
+          <p className="text-muted-foreground mb-4">Something went wrong. Please try again.</p>
+          <Button onClick={() => window.location.reload()}>
+            Refresh Page
+          </Button>
+        </div>
+      </div>
+    );
+  }
 }
