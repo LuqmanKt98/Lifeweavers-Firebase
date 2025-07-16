@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { 
-  collection, 
-  query, 
-  orderBy, 
-  onSnapshot, 
+import {
+  collection,
+  query,
+  orderBy,
+  onSnapshot,
   where,
-  Timestamp 
+  Timestamp
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Appointment } from '@/lib/types';
@@ -50,33 +50,42 @@ export function useAppointments(options: UseAppointmentsOptions = {}): UseAppoin
 
   // Build Firestore query based on options
   const buildQuery = useCallback(() => {
-    let q = query(
-      collection(db, 'appointments'),
-      orderBy('dateOfSession', 'asc')
-    );
+    try {
+      let q = query(
+        collection(db, 'appointments'),
+        orderBy('dateOfSession', 'asc')
+      );
 
-    // Add filters based on options
-    if (dateRange?.start) {
-      q = query(q, where('dateOfSession', '>=', dateRange.start.toISOString()));
-    }
-    
-    if (dateRange?.end) {
-      q = query(q, where('dateOfSession', '<=', dateRange.end.toISOString()));
-    }
+      // Add filters based on options - Use Firestore Timestamps for date queries
+      if (dateRange?.start) {
+        q = query(q, where('dateOfSession', '>=', Timestamp.fromDate(dateRange.start)));
+      }
 
-    if (clinicianId) {
-      q = query(q, where('attendingClinicianId', '==', clinicianId));
-    }
+      if (dateRange?.end) {
+        q = query(q, where('dateOfSession', '<=', Timestamp.fromDate(dateRange.end)));
+      }
 
-    if (clientId) {
-      q = query(q, where('clientId', '==', clientId));
-    }
+      if (clinicianId) {
+        q = query(q, where('attendingClinicianId', '==', clinicianId));
+      }
 
-    if (status && status.length > 0) {
-      q = query(q, where('status', 'in', status));
-    }
+      if (clientId) {
+        q = query(q, where('clientId', '==', clientId));
+      }
 
-    return q;
+      if (status && status.length > 0) {
+        q = query(q, where('status', 'in', status));
+      }
+
+      return q;
+    } catch (error) {
+      console.error('Error building appointments query:', error);
+      // Return basic query without filters if there's an error
+      return query(
+        collection(db, 'appointments'),
+        orderBy('dateOfSession', 'asc')
+      );
+    }
   }, [dateRange, clinicianId, clientId, status]);
 
   // Real-time listener
@@ -101,6 +110,7 @@ export function useAppointments(options: UseAppointmentsOptions = {}): UseAppoin
               ...data,
               createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt,
               updatedAt: data.updatedAt?.toDate?.()?.toISOString() || data.updatedAt,
+              dateOfSession: data.dateOfSession?.toDate?.()?.toISOString() || data.dateOfSession,
             } as Appointment);
           });
 
