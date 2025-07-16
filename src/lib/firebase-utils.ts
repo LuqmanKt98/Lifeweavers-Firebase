@@ -20,6 +20,7 @@ import {
   updateEmail,
   type User as FirebaseUser,
 } from "firebase/auth";
+import type { Attachment } from "@/lib/types";
 
 // Generic type for Firestore documents
 export interface FirestoreDocument extends DocumentData {
@@ -28,8 +29,8 @@ export interface FirestoreDocument extends DocumentData {
   updatedAt: Date;
 }
 
-// Knowledge Base Types
-export interface KnowledgeBaseArticle extends FirestoreDocument {
+// Extended types for firebase-utils specific operations
+export interface KnowledgeBaseArticleExtended extends FirestoreDocument {
   title: string;
   content: string;
   excerpt: string;
@@ -40,8 +41,7 @@ export interface KnowledgeBaseArticle extends FirestoreDocument {
   attachments?: Attachment[];
 }
 
-// Resource Types
-export interface Resource extends FirestoreDocument {
+export interface ResourceExtended extends FirestoreDocument {
   title: string;
   description: string;
   type: "document" | "video" | "link" | "other";
@@ -51,8 +51,7 @@ export interface Resource extends FirestoreDocument {
   accessLevel: "all" | "admin" | "clinician";
 }
 
-// User Management Types
-export interface UserProfile extends FirestoreDocument {
+export interface UserProfileExtended extends FirestoreDocument {
   email: string;
   name: string;
   role: "Super Admin" | "Admin" | "Clinician" | "New User";
@@ -138,7 +137,7 @@ export const getKnowledgeBaseArticles = async (onlyPublished = false) => {
   const conditions = onlyPublished
     ? [{ field: "isPublished", operator: "==", value: true }]
     : undefined;
-  return getDocuments<KnowledgeBaseArticle>(
+  return getDocuments<KnowledgeBaseArticleExtended>(
     "knowledgeBase",
     conditions,
     "updatedAt",
@@ -147,9 +146,9 @@ export const getKnowledgeBaseArticles = async (onlyPublished = false) => {
 };
 
 export const createKnowledgeBaseArticle = async (
-  data: Omit<KnowledgeBaseArticle, "id" | "createdAt" | "updatedAt">
+  data: Omit<KnowledgeBaseArticleExtended, "id" | "createdAt" | "updatedAt">
 ) => {
-  return createDocument<KnowledgeBaseArticle>("knowledgeBase", data);
+  return createDocument<KnowledgeBaseArticleExtended>("knowledgeBase", data);
 };
 
 // Resources specific operations
@@ -159,13 +158,13 @@ export const getResources = async (
   const conditions = accessLevel
     ? [{ field: "accessLevel", operator: "==", value: accessLevel }]
     : undefined;
-  return getDocuments<Resource>("resources", conditions, "updatedAt", "desc");
+  return getDocuments<ResourceExtended>("resources", conditions, "updatedAt", "desc");
 };
 
 export const createResource = async (
-  data: Omit<Resource, "id" | "createdAt" | "updatedAt">
+  data: Omit<ResourceExtended, "id" | "createdAt" | "updatedAt">
 ) => {
-  return createDocument<Resource>("resources", data);
+  return createDocument<ResourceExtended>("resources", data);
 };
 
 // Updated User Management specific operations
@@ -175,7 +174,7 @@ export const getUserProfiles = async () => {
     return usersSnapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
-    })) as UserProfile[];
+    })) as UserProfileExtended[];
   } catch (error) {
     console.error("Error fetching user profiles:", error);
     throw error;
@@ -183,7 +182,7 @@ export const getUserProfiles = async () => {
 };
 
 export const createUserProfile = async (
-  data: Omit<UserProfile, "id" | "createdAt" | "updatedAt">
+  data: Omit<UserProfileExtended, "id" | "createdAt" | "updatedAt">
 ) => {
   try {
     // Create user in Firebase Auth with a default password

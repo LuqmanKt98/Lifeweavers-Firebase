@@ -2,23 +2,49 @@
 // src/components/shared/EventCalendar.tsx
 "use client";
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback, memo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import type { SessionNote, Client, Appointment } from '@/lib/types';
 import { format, isSameDay, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, isToday, isFuture, isPast } from 'date-fns';
-import { CalendarIcon, Clock, ChevronLeft, ChevronRight, User } from 'lucide-react';
+import { CalendarIcon, Clock, ChevronLeft, ChevronRight, User, MapPin, Phone, Video, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { getAllClients } from '@/lib/firebase/clients';
+import { useAppointments } from '@/hooks/useAppointments';
 import Link from 'next/link';
 
 interface EventCalendarProps {
-  sessions: SessionNote[] | Appointment[];
+  sessions?: SessionNote[] | Appointment[];
+  useRealTimeAppointments?: boolean;
+  showAppointmentActions?: boolean;
+  onAppointmentClick?: (appointment: Appointment) => void;
 }
 
-export default function EventCalendar({ sessions }: EventCalendarProps) {
+const EventCalendar = memo(function EventCalendar({
+  sessions = [],
+  useRealTimeAppointments = true,
+  showAppointmentActions = false,
+  onAppointmentClick
+}: EventCalendarProps) {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [clients, setClients] = useState<Client[]>([]);
+
+  // Use real-time appointments hook if enabled
+  const {
+    appointments: realTimeAppointments,
+    loading: appointmentsLoading,
+    getAppointmentsForDate
+  } = useAppointments({
+    dateRange: {
+      start: startOfMonth(currentDate),
+      end: endOfMonth(currentDate)
+    },
+    realtime: useRealTimeAppointments
+  });
+
+  // Determine which data source to use
+  const effectiveSessions = useRealTimeAppointments ? realTimeAppointments : sessions;
 
   // Load clients data
   useEffect(() => {
@@ -38,30 +64,66 @@ export default function EventCalendar({ sessions }: EventCalendarProps) {
   const monthEnd = endOfMonth(currentDate);
   const calendarDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
 
-  const getSessionsForDate = (date: Date) => {
-    return sessions.filter(session =>
+  const getSessionsForDate = useCallback((date: Date) => {
+    if (useRealTimeAppointments) {
+      return getAppointmentsForDate(date);
+    }
+    return effectiveSessions.filter(session =>
       isSameDay(new Date(session.dateOfSession), date)
     );
-  };
+  }, [useRealTimeAppointments, getAppointmentsForDate, effectiveSessions]);
 
-  const selectedDateSessions = selectedDate ? getSessionsForDate(selectedDate) : [];
+  // Get appointment status color - memoized
+  const getStatusColor = useCallback((status: string) => {
+    switch (status) {
+      case 'confirmed': return 'bg-green-500';
+      case 'tentative': return 'bg-yellow-500';
+      case 'cancelled': return 'bg-red-500';
+      case 'completed': return 'bg-blue-500';
+      default: return 'bg-gray-500';
+    }
+  }, []);
 
-  const navigateMonth = (direction: 'prev' | 'next') => {
+  // Get appointment status icon - memoized
+  const getStatusIcon = useCallback((status: string) => {
+    switch (status) {
+      case 'confirmed': return <CheckCircle className="h-3 w-3" />;
+      case 'tentative': return <AlertCircle className="h-3 w-3" />;
+      case 'cancelled': return <XCircle className="h-3 w-3" />;
+      case 'completed': return <CheckCircle className="h-3 w-3" />;
+      default: return <Clock className="h-3 w-3" />;
+    }
+  }, []);
+
+  // Memoized calendar calculations
+  const calendarData = useMemo(() => {
+    const monthStart = startOfMonth(currentDate);
+    const monthEnd = endOfMonth(currentDate);
+    const calendarDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
+    return { monthStart, monthEnd, calendarDays };
+  }, [currentDate]);
+
+  const selectedDateSessions = useMemo(() =>
+    selectedDate ? getSessionsForDate(selectedDate) : [],
+    [selectedDate, getSessionsForDate]
+  );
+
+  const navigateMonth = useCallback((direction: 'prev' | 'next') => {
     setCurrentDate(prev => direction === 'prev' ? subMonths(prev, 1) : addMonths(prev, 1));
     setSelectedDate(null);
-  };
+  }, []);
 
-  const getClientName = (clientId: string): string => {
+  const getClientName = useCallback((clientId: string): string => {
     const client = clients.find(c => c.id === clientId);
     return client?.name || 'Unknown Client';
-  };
+  }, [clients]);
 
-  const weekDays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  const weekDays = useMemo(() => ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'], []);
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6">
+    <div className="flex flex-col xl:flex-row gap-4 lg:gap-6">
       {/* Calendar Section */}
-      <div className="lg:w-1/2">
+      <div className="xl:w-1/2">
         <div className="bg-card rounded-lg border">
           {/* Calendar Header */}
           <div className="flex items-center justify-between p-4 border-b">
@@ -106,37 +168,63 @@ export default function EventCalendar({ sessions }: EventCalendarProps) {
             </div>
 
             {/* Calendar grid */}
-            <div className="grid grid-cols-7 gap-1">
-              {calendarDays.map(day => {
-                const dayNumber = day.getDate();
-                const hasSessions = getSessionsForDate(day).length > 0;
-                const isSelected = selectedDate && isSameDay(day, selectedDate);
-                const isTodayDate = isToday(day);
+            <div className="grid grid-cols-7 gap-1 sm:gap-2">
+              {appointmentsLoading && useRealTimeAppointments ? (
+                // Loading skeleton for calendar
+                Array.from({ length: 35 }).map((_, index) => (
+                  <div key={index} className="h-10 bg-gray-100 rounded animate-pulse" />
+                ))
+              ) : (
+                calendarData.calendarDays.map(day => {
+                  const dayNumber = day.getDate();
+                  const daySessions = getSessionsForDate(day);
+                  const hasSessions = daySessions.length > 0;
+                  const isSelected = selectedDate && isSameDay(day, selectedDate);
+                  const isTodayDate = isToday(day);
 
-                return (
-                  <button
-                    key={day.toISOString()}
-                    onClick={() => setSelectedDate(day)}
-                    className={`
-                      calendar-day-button
-                      ${isSelected ? 'selected' : ''}
-                      ${isTodayDate ? 'today' : ''}
-                    `}
-                  >
-                    {dayNumber}
-                    {hasSessions && (
-                      <div className="session-dot"></div>
-                    )}
-                  </button>
-                );
-              })}
+                  return (
+                    <button
+                      key={day.toISOString()}
+                      onClick={() => setSelectedDate(day)}
+                      aria-label={`${format(day, 'MMMM d, yyyy')}${hasSessions ? ` - ${daySessions.length} appointment${daySessions.length !== 1 ? 's' : ''}` : ''}`}
+                      aria-pressed={isSelected}
+                      className={`
+                        relative h-8 sm:h-10 p-1 text-xs sm:text-sm rounded hover:bg-accent transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2
+                        ${isSelected ? 'bg-primary text-primary-foreground' : ''}
+                        ${isTodayDate ? 'bg-accent font-semibold' : ''}
+                        ${hasSessions ? 'font-medium' : ''}
+                      `}
+                    >
+                      {dayNumber}
+                      {hasSessions && (
+                        <div className="absolute bottom-1 left-1/2 transform -translate-x-1/2 flex gap-0.5">
+                          {daySessions.slice(0, 3).map((session, index) => {
+                            const isAppointment = 'status' in session;
+                            const status = isAppointment ? (session as Appointment).status : 'completed';
+                            return (
+                              <div
+                                key={index}
+                                className={`w-1.5 h-1.5 rounded-full ${getStatusColor(status)}`}
+                                title={isAppointment ? `${(session as Appointment).type} - ${status}` : 'Session'}
+                              />
+                            );
+                          })}
+                          {daySessions.length > 3 && (
+                            <div className="w-1.5 h-1.5 rounded-full bg-gray-400" title={`+${daySessions.length - 3} more`} />
+                          )}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>
       </div>
 
       {/* Sessions Section */}
-      <div className="lg:w-1/2">
+      <div className="xl:w-1/2">
         <div className="bg-card rounded-lg border">
           <div className="p-4 border-b">
             <h3 className="text-lg font-semibold">
@@ -162,19 +250,68 @@ export default function EventCalendar({ sessions }: EventCalendarProps) {
                     return (
                       <div
                         key={session.id}
-                        className="p-3 border rounded-lg bg-background hover:shadow-sm transition-shadow"
+                        role={onAppointmentClick ? "button" : "article"}
+                        tabIndex={onAppointmentClick ? 0 : undefined}
+                        aria-label={`Appointment with ${clientName} at ${sessionTime}`}
+                        className={`p-3 sm:p-4 border rounded-lg bg-background hover:shadow-sm transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
+                          onAppointmentClick ? 'hover:border-primary' : ''
+                        }`}
+                        onClick={() => {
+                          if (onAppointmentClick && isAppointment) {
+                            onAppointmentClick(session as Appointment);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if ((e.key === 'Enter' || e.key === ' ') && onAppointmentClick && isAppointment) {
+                            e.preventDefault();
+                            onAppointmentClick(session as Appointment);
+                          }
+                        }}
                       >
                         <div className="flex items-center justify-between mb-2">
                           <h4 className="font-medium text-primary">{clientName}</h4>
+                          {isAppointment && (
+                            <Badge
+                              variant="outline"
+                              className={`text-xs ${getStatusColor((session as Appointment).status)} text-white border-none`}
+                            >
+                              <span className="flex items-center gap-1">
+                                {getStatusIcon((session as Appointment).status)}
+                                {(session as Appointment).status}
+                              </span>
+                            </Badge>
+                          )}
                         </div>
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
                           <Clock className="h-4 w-4" />
                           <span>{sessionTime} - {endTime}</span>
                         </div>
+
                         {session.attendingClinicianName && (
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
                             <User className="h-4 w-4" />
                             <span>{session.attendingClinicianName}</span>
+                          </div>
+                        )}
+
+                        {isAppointment && (session as Appointment).location && (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                            <MapPin className="h-4 w-4" />
+                            <span>{(session as Appointment).location}</span>
+                          </div>
+                        )}
+
+                        {isAppointment && (session as Appointment).type && (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Badge variant="secondary" className="text-xs">
+                              {(session as Appointment).type}
+                            </Badge>
+                            {(session as Appointment).duration && (
+                              <span className="text-xs">
+                                {(session as Appointment).duration} min
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>
@@ -196,5 +333,7 @@ export default function EventCalendar({ sessions }: EventCalendarProps) {
       </div>
     </div>
   );
-}
+});
+
+export default EventCalendar;
 

@@ -7,6 +7,8 @@ import { useToast } from '@/hooks/use-toast';
 import { createAppointment } from '@/lib/firebase/appointments';
 import { getAllClients } from '@/lib/firebase/clients';
 import { getAllUsers } from '@/lib/firebase/users';
+import { useAppointments } from '@/hooks/useAppointments';
+import { checkAppointmentConflicts, validateAppointmentTiming, suggestAlternativeSlots } from '@/lib/utils/appointmentConflicts';
 import type { Appointment, AppointmentType, AppointmentStatus, Client, User } from '@/lib/types';
 import { format, addMinutes } from 'date-fns';
 
@@ -33,7 +35,7 @@ import {
 import { Plus, Loader2 } from 'lucide-react';
 
 interface NewAppointmentDialogProps {
-  onAppointmentCreated?: () => void;
+  onAppointmentCreated?: (appointment?: Appointment) => void;
 }
 
 interface AppointmentFormData {
@@ -53,8 +55,13 @@ export function NewAppointmentDialog({ onAppointmentCreated }: NewAppointmentDia
   const [isLoading, setIsLoading] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
   const [clinicians, setClinicians] = useState<User[]>([]);
+  const [conflicts, setConflicts] = useState<any>(null);
+  const [showConflictWarning, setShowConflictWarning] = useState(false);
   const { currentUser } = useAuth();
   const { toast } = useToast();
+
+  // Get existing appointments for conflict checking
+  const { appointments: existingAppointments } = useAppointments({ realtime: true });
 
   const {
     register,
@@ -72,6 +79,9 @@ export function NewAppointmentDialog({ onAppointmentCreated }: NewAppointmentDia
       attendingClinicianId: currentUser?.id || '',
     },
   });
+
+  // Watch form values for real-time conflict checking
+  const watchedValues = watch(['dateOfSession', 'timeOfSession', 'duration', 'attendingClinicianId', 'clientId']);
 
   const loadData = async () => {
     try {
@@ -91,6 +101,45 @@ export function NewAppointmentDialog({ onAppointmentCreated }: NewAppointmentDia
     }
   };
 
+  // Check for conflicts when form values change
+  useEffect(() => {
+    const [dateOfSession, timeOfSession, duration, attendingClinicianId, clientId] = watchedValues;
+
+    if (dateOfSession && timeOfSession && duration && attendingClinicianId) {
+      const startTime = new Date(`${dateOfSession}T${timeOfSession}`);
+      const endTime = addMinutes(startTime, duration);
+
+      // Validate timing
+      const timingValidation = validateAppointmentTiming(startTime, duration);
+
+      if (!timingValidation.isValid) {
+        setConflicts({ errors: timingValidation.errors });
+        setShowConflictWarning(true);
+        return;
+      }
+
+      // Check for conflicts
+      const conflictCheck = checkAppointmentConflicts(
+        {
+          startTime,
+          endTime,
+          clinicianId: attendingClinicianId,
+          clientId,
+          location: watch('location')
+        },
+        existingAppointments
+      );
+
+      if (conflictCheck.hasConflict) {
+        setConflicts(conflictCheck);
+        setShowConflictWarning(true);
+      } else {
+        setConflicts(null);
+        setShowConflictWarning(false);
+      }
+    }
+  }, [watchedValues, existingAppointments, watch]);
+
   const onSubmit = async (data: AppointmentFormData) => {
     if (!currentUser) return;
 
@@ -105,6 +154,29 @@ export function NewAppointmentDialog({ onAppointmentCreated }: NewAppointmentDia
 
       // Combine date and time
       const dateTime = new Date(`${data.dateOfSession}T${data.timeOfSession}`);
+
+      // Final conflict check before submission
+      const finalConflictCheck = checkAppointmentConflicts(
+        {
+          startTime: dateTime,
+          endTime: addMinutes(dateTime, data.duration),
+          clinicianId: data.attendingClinicianId,
+          clientId: data.clientId,
+          location: data.location
+        },
+        existingAppointments
+      );
+
+      if (finalConflictCheck.hasConflict) {
+        toast({
+          title: "⚠️ Scheduling Conflict",
+          description: finalConflictCheck.message,
+          variant: "destructive",
+        });
+        setConflicts(finalConflictCheck);
+        setShowConflictWarning(true);
+        return;
+      }
 
       const appointmentData: Omit<Appointment, 'id' | 'createdAt' | 'updatedAt'> = {
         clientId: data.clientId,
@@ -122,16 +194,18 @@ export function NewAppointmentDialog({ onAppointmentCreated }: NewAppointmentDia
         createdByUserName: currentUser.name,
       };
 
-      await createAppointment(appointmentData);
+      const newAppointment = await createAppointment(appointmentData);
 
       toast({
-        title: "Success",
-        description: "Appointment created successfully.",
+        title: "✅ Appointment Created",
+        description: `Appointment with ${selectedClient.name} has been scheduled successfully.`,
       });
 
       reset();
       setOpen(false);
-      onAppointmentCreated?.();
+      onAppointmentCreated?.(newAppointment);
+
+      // Note: Real-time listeners will automatically update the calendar
     } catch (error) {
       console.error('Error creating appointment:', error);
       toast({

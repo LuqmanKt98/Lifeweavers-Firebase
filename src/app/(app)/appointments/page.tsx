@@ -18,6 +18,9 @@ import {
 import { getAllAppointments } from '@/lib/firebase/appointments';
 import { getAllClients, cleanupOrphanedData } from '@/lib/firebase/clients';
 import { getAllUsers } from '@/lib/firebase/users';
+import { useAppointments } from '@/hooks/useAppointments';
+import { AppointmentErrorBoundary, CalendarErrorBoundary } from '@/components/ui/error-boundary';
+import { CalendarSkeleton, AppointmentListSkeleton, LoadingState } from '@/components/ui/loading-skeleton';
 import type { Appointment, Client, User } from '@/lib/types';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths, isToday, isFuture, isPast } from 'date-fns';
 import Link from 'next/link';
@@ -30,26 +33,46 @@ interface AppointmentWithDetails extends Appointment {
 export default function AppointmentsPage() {
   const { currentUser } = useAuth();
   const { toast } = useToast();
-  const [appointments, setAppointments] = useState<AppointmentWithDetails[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [users, setUsers] = useState<User[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
+  // Use real-time appointments hook
+  const {
+    appointments: realTimeAppointments,
+    loading: appointmentsLoading,
+    error: appointmentsError,
+    getAppointmentsForDate,
+    getTodayAppointments
+  } = useAppointments({
+    realtime: true
+  });
+
+  // Convert to AppointmentWithDetails format
+  const appointments: AppointmentWithDetails[] = realTimeAppointments.map(appointment => {
+    const client = clients.find(c => c.id === appointment.clientId);
+    const clinician = users.find(u => u.id === appointment.attendingClinicianId);
+    return {
+      ...appointment,
+      clientName: client?.name || appointment.clientName || 'Unknown Client',
+      clinicianName: clinician?.name || appointment.attendingClinicianName || 'Unknown Clinician'
+    };
+  });
+
+  const isLoading = appointmentsLoading;
+
   useEffect(() => {
     if (currentUser) {
-      loadData();
+      loadSupportingData();
     }
   }, [currentUser]);
 
-  const loadData = async () => {
+  const loadSupportingData = async () => {
     if (!currentUser) return;
 
-    setIsLoading(true);
     try {
-      const [appointmentsData, clientsData, usersData] = await Promise.all([
-        getAllAppointments(),
+      const [clientsData, usersData] = await Promise.all([
         getAllClients(),
         getAllUsers()
       ]);
@@ -57,55 +80,22 @@ export default function AppointmentsPage() {
       setClients(clientsData);
       setUsers(usersData);
 
-      // Transform appointments with details
-      let appointmentsWithDetails = appointmentsData.map(appointment => {
-        const client = clientsData.find(c => c.id === appointment.clientId);
-        const clinician = usersData.find(u => u.id === appointment.attendingClinicianId);
-
-        return {
-          ...appointment,
-          clientName: client?.name || appointment.clientName || 'Unknown Client',
-          clinicianName: clinician?.name || appointment.attendingClinicianName || 'Unknown Clinician'
-        };
-      });
-
       // Auto-cleanup orphaned data
       try {
         const cleanupResult = await cleanupOrphanedData();
         if (cleanupResult.deletedAppointments > 0) {
           console.log('🧹 Auto-cleanup completed in appointments page:', cleanupResult);
-          // Reload appointments data after cleanup
-          const updatedAppointmentsData = await getAllAppointments();
-          const updatedAppointmentsWithDetails = updatedAppointmentsData.map(appointment => {
-            const client = clientsData.find(c => c.id === appointment.clientId);
-            const clinician = usersData.find(u => u.id === appointment.attendingClinicianId);
-            return {
-              ...appointment,
-              clientName: client?.name || 'Unknown Client',
-              clinicianName: clinician?.name || appointment.attendingClinicianName || 'Unknown Clinician'
-            };
-          });
-          appointmentsWithDetails = updatedAppointmentsWithDetails;
         }
       } catch (cleanupError) {
         console.warn('Auto-cleanup failed:', cleanupError);
       }
-
-      setAppointments(appointmentsWithDetails);
-
-      toast({
-        title: "Appointments Loaded",
-        description: `Loaded ${appointmentsWithDetails.length} appointments.`,
-      });
     } catch (error) {
-      console.error('Error loading appointments:', error);
+      console.error('Error loading supporting data:', error);
       toast({
         title: "Load Failed",
-        description: "Failed to load appointments.",
+        description: "Failed to load supporting data.",
         variant: "destructive"
       });
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -113,13 +103,13 @@ export default function AppointmentsPage() {
   const monthEnd = endOfMonth(currentDate);
   const calendarDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
 
-  const getAppointmentsForDate = (date: Date) => {
+  const getAppointmentsForDateLocal = (date: Date) => {
     return appointments.filter(appointment =>
       isSameDay(new Date(appointment.dateOfSession), date)
     );
   };
 
-  const selectedDateAppointments = selectedDate ? getAppointmentsForDate(selectedDate) : [];
+  const selectedDateAppointments = selectedDate ? getAppointmentsForDateLocal(selectedDate) : [];
 
   const navigateMonth = (direction: 'prev' | 'next') => {
     setCurrentDate(prev => direction === 'prev' ? subMonths(prev, 1) : addMonths(prev, 1));
@@ -178,9 +168,10 @@ export default function AppointmentsPage() {
         </CardHeader>
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
         {/* Calendar */}
-        <Card className="lg:col-span-2">
+        <CalendarErrorBoundary>
+          <Card className="lg:col-span-2">
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="flex items-center gap-2">
@@ -199,22 +190,19 @@ export default function AppointmentsPage() {
           </CardHeader>
           <CardContent>
             {isLoading ? (
-              <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-                <p className="text-muted-foreground">Loading calendar...</p>
-              </div>
+              <CalendarSkeleton />
             ) : (
-              <div className="grid grid-cols-7 gap-2">
+              <div className="grid grid-cols-7 gap-1 sm:gap-2">
                 {/* Day headers */}
                 {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => (
-                  <div key={day} className="p-2 text-center text-sm font-medium text-muted-foreground">
+                  <div key={day} className="p-1 sm:p-2 text-center text-xs sm:text-sm font-medium text-muted-foreground">
                     {day}
                   </div>
                 ))}
 
                 {/* Calendar days */}
                 {calendarDays.map(day => {
-                  const dayAppointments = getAppointmentsForDate(day);
+                  const dayAppointments = getAppointmentsForDateLocal(day);
                   const isSelected = selectedDate && isSameDay(day, selectedDate);
                   const isCurrentDay = isToday(day);
 
@@ -222,8 +210,10 @@ export default function AppointmentsPage() {
                     <button
                       key={day.toISOString()}
                       onClick={() => setSelectedDate(day)}
+                      aria-label={`${format(day, 'MMMM d, yyyy')}${dayAppointments.length > 0 ? ` - ${dayAppointments.length} appointment${dayAppointments.length !== 1 ? 's' : ''}` : ''}`}
+                      aria-pressed={isSelected}
                       className={`
-                        p-2 text-sm rounded-lg border transition-all duration-200 min-h-[60px] flex flex-col items-center justify-start
+                        p-1 sm:p-2 text-xs sm:text-sm rounded-lg border transition-all duration-200 min-h-[40px] sm:min-h-[60px] flex flex-col items-center justify-start focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2
                         ${isSelected ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted border-transparent'}
                         ${isCurrentDay ? 'ring-2 ring-primary ring-opacity-50' : ''}
                       `}
@@ -248,9 +238,11 @@ export default function AppointmentsPage() {
             )}
           </CardContent>
         </Card>
+        </CalendarErrorBoundary>
 
         {/* Sessions for selected date */}
-        <Card>
+        <AppointmentErrorBoundary>
+          <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Clock className="h-5 w-5" />
@@ -264,7 +256,9 @@ export default function AppointmentsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {!selectedDate ? (
+            {isLoading ? (
+              <AppointmentListSkeleton count={3} />
+            ) : !selectedDate ? (
               <div className="text-center py-8">
                 <Calendar className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
                 <p className="text-muted-foreground">Select a date to view sessions</p>
@@ -319,6 +313,7 @@ export default function AppointmentsPage() {
             )}
           </CardContent>
         </Card>
+        </AppointmentErrorBoundary>
       </div>
     </div>
   );

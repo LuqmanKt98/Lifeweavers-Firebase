@@ -44,8 +44,8 @@ import {
   createUserProfile,
   updateUserProfile,
   deleteUserProfile,
+  type UserProfileExtended as UserProfile,
 } from "@/lib/firebase-utils";
-import type { UserProfile } from "@/lib/firebase-utils";
 
 const USER_ROLES = [
   { value: "Super Admin", label: "Super Admin" },
